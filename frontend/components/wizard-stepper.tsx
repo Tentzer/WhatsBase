@@ -1,8 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Check } from "lucide-react";
+import { useNavigate } from "@/components/navigation-progress";
 import { cn } from "@/lib/utils";
 import { useLocale } from "@/lib/locale";
 
@@ -15,6 +15,7 @@ const steps = [
 
 export function WizardStepper() {
   const pathname = usePathname();
+  const navigate = useNavigate();
   const { t } = useLocale();
 
   const currentIndex = steps.findIndex((s) => s.href === pathname);
@@ -50,8 +51,9 @@ export function WizardStepper() {
 
           return (
             <li key={step.href} className="relative flex flex-1 flex-col items-center gap-2">
-              <Link
-                href={step.href}
+              <button
+                type="button"
+                onClick={() => navigate(step.href)}
                 aria-current={isActive ? "step" : undefined}
                 className="group flex flex-col items-center gap-2 focus-visible:outline-none"
               >
@@ -91,7 +93,7 @@ export function WizardStepper() {
                 >
                   {t(step.en, step.he)}
                 </span>
-              </Link>
+              </button>
             </li>
           );
         })}
