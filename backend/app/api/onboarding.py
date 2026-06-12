@@ -249,8 +249,13 @@ async def save_products(
 
             image_row.storage_path = image_payload.storage_path
             image_row.public_url = image_payload.public_url
-        elif product.images:
-            image_row = product.images[0]
+        else:
+            existing_result = await session.execute(
+                select(ProductImage)
+                .where(ProductImage.product_id == product.id)
+                .order_by(ProductImage.created_at.asc())
+            )
+            image_row = existing_result.scalars().first()
 
         output.append(
             ProductResponse(
