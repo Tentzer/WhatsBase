@@ -1,17 +1,22 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { Moon, Sun } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { FloatingChat } from "@/components/floating-chat";
 import { useLocale } from "@/lib/locale";
 import { createClient } from "@/lib/supabase/client";
+import { cn } from "@/lib/utils";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { locale, setLocale, theme, toggleTheme, t } = useLocale();
   const router = useRouter();
+  const pathname = usePathname();
   const supabase = createClient();
+
+  const isOnboarding = pathname.startsWith("/onboarding");
+  const isTestChat = pathname.startsWith("/test-chat");
 
   const signOut = async () => {
     await supabase.auth.signOut();
@@ -45,11 +50,26 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </Button>
             <Link
               href="/onboarding/business"
-              className={buttonVariants({ variant: "outline", size: "sm" })}
+              className={cn(
+                buttonVariants({ size: "sm" }),
+                isOnboarding
+                  ? "border-emerald-500 bg-emerald-50 text-emerald-700 shadow-none dark:bg-emerald-950/50 dark:text-emerald-400"
+                  : "border-border bg-background text-foreground hover:bg-muted dark:border-input dark:bg-input/30 dark:hover:bg-input/50",
+                "border",
+              )}
             >
               {t("Onboarding", "אונבורדינג")}
             </Link>
-            <Link href="/test-chat" className={buttonVariants({ variant: "outline", size: "sm" })}>
+            <Link
+              href="/test-chat"
+              className={cn(
+                buttonVariants({ size: "sm" }),
+                isTestChat
+                  ? "border-emerald-500 bg-emerald-50 text-emerald-700 shadow-none dark:bg-emerald-950/50 dark:text-emerald-400"
+                  : "border-border bg-background text-foreground hover:bg-muted dark:border-input dark:bg-input/30 dark:hover:bg-input/50",
+                "border",
+              )}
+            >
               {t("Test Chat", "צ׳אט בדיקה")}
             </Link>
             <FloatingChat />

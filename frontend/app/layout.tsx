@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Plus_Jakarta_Sans, Geist_Mono } from "next/font/google";
+import NextTopLoader from "nextjs-toploader";
 import "./globals.css";
 import { LocaleProvider } from "@/lib/locale";
 
@@ -32,6 +33,7 @@ export default function RootLayout({
       className={`${plusJakartaSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
+        <NextTopLoader color="#059669" height={3} showSpinner={false} shadow={false} />
         <LocaleProvider>{children}</LocaleProvider>
       </body>
     </html>
