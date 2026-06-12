@@ -7,6 +7,7 @@ import { Moon, Sun } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { FloatingChat } from "@/components/floating-chat";
 import { LangfusePanel } from "@/components/langfuse-panel";
+import { NavigationProgressProvider } from "@/components/navigation-progress";
 import { useLocale } from "@/lib/locale";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
@@ -57,6 +58,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   };
 
   return (
+    <NavigationProgressProvider>
     <div className="min-h-screen text-foreground">
       <header className="sticky top-0 z-40 border-b bg-card/80 backdrop-blur-md">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
@@ -131,5 +133,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </header>
       <main className="mx-auto max-w-6xl px-4 py-6">{children}</main>
     </div>
+    </NavigationProgressProvider>
   );
 }

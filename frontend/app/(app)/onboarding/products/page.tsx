@@ -2,7 +2,7 @@
 
 import Papa from "papaparse";
 import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useNavigate } from "@/components/navigation-progress";
 import { Trash2, Upload } from "lucide-react";
 import { WizardStepper } from "@/components/wizard-stepper";
 import { Button } from "@/components/ui/button";
@@ -53,7 +53,7 @@ function productFromCsv(row: CsvRow): ProductDraft {
 }
 
 export default function ProductsOnboardingPage() {
-  const router = useRouter();
+  const navigate = useNavigate();
   const { t } = useLocale();
   const { products, setProducts, catalogPhotos, setCatalogPhotos } = useOnboardingStore();
   const [rows, setRows] = useState<ProductDraft[]>(products);
@@ -182,7 +182,7 @@ export default function ProductsOnboardingPage() {
       const saved = await api.saveProducts(rows);
       setProducts(saved);
       setCatalogPhotos(photoLibrary);
-      router.push("/onboarding/whatsapp");
+      navigate("/onboarding/build");
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : String(err));
     } finally {

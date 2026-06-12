@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useNavigate } from "@/components/navigation-progress";
 import { AlertTriangle, Loader2, RefreshCw } from "lucide-react";
 import { WizardStepper } from "@/components/wizard-stepper";
 import { Button } from "@/components/ui/button";
@@ -36,7 +36,7 @@ function classifyApiError(err: unknown): string {
 }
 
 export default function BusinessOnboardingPage() {
-  const router = useRouter();
+  const navigate = useNavigate();
   const { t } = useLocale();
   const supabase = useMemo(() => createClient(), []);
   const { tenant, setTenant, businessInfo, setBusinessInfo } = useOnboardingStore();
@@ -56,7 +56,7 @@ export default function BusinessOnboardingPage() {
         data: { session },
       } = await supabase.auth.getSession();
       if (!session?.user?.email) {
-        router.push("/login");
+        navigate("/login");
         return;
       }
       const me = await api.getMe(session.user.email);
@@ -92,7 +92,7 @@ export default function BusinessOnboardingPage() {
       setTenant(resolvedTenant);
       const saved = await api.saveBusinessInfo(blocks);
       setBusinessInfo(saved);
-      router.push("/onboarding/products");
+      navigate("/onboarding/products");
     } catch (error) {
       console.error("Failed to save business onboarding data:", error);
       setSaveError(classifyApiError(error));

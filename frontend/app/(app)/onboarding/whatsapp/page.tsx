@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useNavigate } from "@/components/navigation-progress";
 import { Loader2 } from "lucide-react";
 import { WizardStepper } from "@/components/wizard-stepper";
 import { Button } from "@/components/ui/button";
@@ -13,7 +13,7 @@ import { useLocale } from "@/lib/locale";
 import { useOnboardingStore } from "@/lib/store";
 
 export default function WhatsAppOnboardingPage() {
-  const router = useRouter();
+  const navigate = useNavigate();
   const { t } = useLocale();
   const { whatsapp, setWhatsApp } = useOnboardingStore();
   const [instanceId, setInstanceId] = useState("");
@@ -93,7 +93,7 @@ export default function WhatsAppOnboardingPage() {
             type="button"
             className="bg-emerald-600 hover:bg-emerald-700"
             disabled={!whatsapp?.connected}
-            onClick={() => router.push("/onboarding/build")}
+            onClick={() => navigate("/onboarding/build")}
           >
             {t("Rebuild to go live", "בנייה מחדש לפרסום")}
           </Button>

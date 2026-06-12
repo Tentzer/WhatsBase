@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useNavigate } from "@/components/navigation-progress";
 import { CheckCircle2, Loader2 } from "lucide-react";
 import { WizardStepper } from "@/components/wizard-stepper";
 import { Button } from "@/components/ui/button";
@@ -21,7 +21,7 @@ const timeline = [
 ] as const;
 
 export default function BuildPage() {
-  const router = useRouter();
+  const navigate = useNavigate();
   const { t } = useLocale();
   const [run, setRun] = useState<BuildRun | null>(null);
   const [running, setRunning] = useState(false);
@@ -149,7 +149,7 @@ export default function BuildPage() {
               type="button"
               variant="outline"
               disabled={run?.status !== "passed"}
-              onClick={() => router.push("/test-chat")}
+              onClick={() => navigate("/test-chat")}
             >
               {t("Open test chat", "פתיחת צ׳אט בדיקה")}
             </Button>
@@ -157,7 +157,7 @@ export default function BuildPage() {
               type="button"
               className="bg-emerald-600 hover:bg-emerald-700"
               disabled={run?.status !== "passed"}
-              onClick={() => router.push("/onboarding/whatsapp")}
+              onClick={() => navigate("/onboarding/whatsapp")}
             >
               {t("Continue → Connect WhatsApp", "המשך → חיבור וואטסאפ")}
             </Button>
