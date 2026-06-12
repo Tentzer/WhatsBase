@@ -1,7 +1,15 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { buttonVariants } from "@/components/ui/button";
+import { createClient } from "@/lib/supabase/server";
 
-export default function Home() {
+export default async function Home() {
+  const supabase = await createClient();
+  const { data: { session } } = await supabase.auth.getSession();
+  if (session) {
+    redirect("/onboarding");
+  }
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <main className="w-full max-w-3xl rounded-2xl border bg-card p-8 shadow-sm sm:p-12">
