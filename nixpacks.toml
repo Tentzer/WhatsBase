@@ -1,0 +1,11 @@
+# Monorepo: pyproject.toml lives in backend/, so Nixpacks must be told to use Python.
+providers = ["python"]
+
+[variables]
+NIXPACKS_PYTHON_VERSION = "3.12"
+
+[phases.install]
+cmds = ["cd backend && python -m pip install -e ."]
+
+[start]
+cmd = "cd backend && alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT"

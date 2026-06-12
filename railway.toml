@@ -1,7 +1,7 @@
 [build]
 builder = "NIXPACKS"
 # Install from pyproject.toml so all pinned deps are used
-buildCommand = "cd backend && pip install -e ."
+buildCommand = "cd backend && python -m pip install -e ."
 
 [deploy]
 # Run DB migrations then start the API server
