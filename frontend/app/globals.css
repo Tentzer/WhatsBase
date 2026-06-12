@@ -88,24 +88,24 @@
 }
 
 .dark {
-  /* Deep teal-slate instead of neutral black */
-  --background: oklch(0.118 0.022 185);
+  /* Dark teal-slate — lighter than before so it's not oppressively black */
+  --background: oklch(0.17 0.022 185);
   --foreground: oklch(0.96 0.008 155);
-  --card: oklch(0.162 0.02 180);
+  --card: oklch(0.215 0.02 180);
   --card-foreground: oklch(0.96 0.008 155);
-  --popover: oklch(0.162 0.02 180);
+  --popover: oklch(0.215 0.02 180);
   --popover-foreground: oklch(0.96 0.008 155);
   --primary: oklch(0.62 0.18 154.45);
-  --primary-foreground: oklch(0.118 0.022 185);
-  --secondary: oklch(0.22 0.025 180);
+  --primary-foreground: oklch(0.17 0.022 185);
+  --secondary: oklch(0.265 0.025 180);
   --secondary-foreground: oklch(0.96 0.008 155);
-  --muted: oklch(0.22 0.025 180);
+  --muted: oklch(0.265 0.025 180);
   --muted-foreground: oklch(0.65 0.025 165);
-  --accent: oklch(0.22 0.025 180);
+  --accent: oklch(0.265 0.025 180);
   --accent-foreground: oklch(0.96 0.008 155);
   --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 9%);
-  --input: oklch(1 0 0 / 12%);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 14%);
   --ring: oklch(0.62 0.18 154.45);
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
@@ -132,8 +132,8 @@
 
 html.dark {
   --bg-gradient:
-    radial-gradient(ellipse 70% 45% at 5% 0%, oklch(0.25 0.08 155 / 0.55) 0%, transparent 60%),
-    radial-gradient(ellipse 55% 40% at 95% 100%, oklch(0.22 0.06 195 / 0.4) 0%, transparent 55%);
+    radial-gradient(ellipse 70% 45% at 5% 0%, oklch(0.32 0.09 155 / 0.5) 0%, transparent 60%),
+    radial-gradient(ellipse 55% 40% at 95% 100%, oklch(0.28 0.07 195 / 0.4) 0%, transparent 55%);
 }
 
 @layer base {

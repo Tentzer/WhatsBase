@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Package, Zap, MessageCircle, ArrowRight } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { createClient } from "@/lib/supabase/server";
 import { cn } from "@/lib/utils";
 
@@ -23,6 +24,7 @@ export default async function Home() {
             WhatsBase
           </span>
           <div className="flex items-center gap-2">
+            <ThemeToggle />
             <Link
               href="/login"
               className={cn(buttonVariants({ variant: "ghost", size: "sm" }))}
