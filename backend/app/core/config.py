@@ -47,6 +47,11 @@ class Settings(BaseSettings):
     # --- Runtime behavior ---
     intake_mode: IntakeMode = "polling"
     app_base_url: str = "http://localhost:8000"
+    # Comma-separated frontend origins allowed to call the API from browsers.
+    # Example:
+    #   https://frontend-whats-base.vercel.app,https://my-preview.vercel.app
+    cors_allow_origins: str = ""
+    cors_allow_credentials: bool = True
 
     # Test-mode allowlist. Comma-separated WhatsApp numbers (country code +
     # digits, no plus, no spaces). Empty = no filter. When non-empty, the
