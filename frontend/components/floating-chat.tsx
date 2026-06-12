@@ -50,8 +50,11 @@ export function FloatingChat() {
 
   useEffect(() => {
     if (open) {
-      setHasUnread(false);
+      const unreadTimer = window.setTimeout(() => {
+        setHasUnread(false);
+      }, 0);
       setTimeout(() => inputRef.current?.focus(), 50);
+      return () => window.clearTimeout(unreadTimer);
     }
   }, [open]);
 

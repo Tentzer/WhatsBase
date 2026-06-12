@@ -76,7 +76,10 @@ export default function BusinessOnboardingPage() {
   }, [businessInfo.length, router, setTenant, supabase]);
 
   useEffect(() => {
-    void bootstrap();
+    const bootstrapTimer = window.setTimeout(() => {
+      void bootstrap();
+    }, 0);
+    return () => window.clearTimeout(bootstrapTimer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

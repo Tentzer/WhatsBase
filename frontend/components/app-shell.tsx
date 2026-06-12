@@ -1,10 +1,12 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Moon, Sun } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { FloatingChat } from "@/components/floating-chat";
+import { LangfusePanel } from "@/components/langfuse-panel";
 import { useLocale } from "@/lib/locale";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
@@ -14,9 +16,40 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const supabase = createClient();
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [analyticsOpen, setAnalyticsOpen] = useState(false);
+  const analyticsRef = useRef<HTMLDivElement>(null);
 
   const isOnboarding = pathname.startsWith("/onboarding");
   const isTestChat = pathname.startsWith("/test-chat");
+  const canViewAnalytics = userEmail === "roytentzer@gmail.com";
+
+  useEffect(() => {
+    let mounted = true;
+    const loadUser = async () => {
+      const { data } = await supabase.auth.getUser();
+      if (mounted) {
+        setUserEmail(data.user?.email ?? null);
+      }
+    };
+    void loadUser();
+    return () => {
+      mounted = false;
+    };
+  }, [supabase]);
+
+  useEffect(() => {
+    if (!analyticsOpen) return;
+    const handleOutsideClick = (event: MouseEvent) => {
+      if (analyticsRef.current && !analyticsRef.current.contains(event.target as Node)) {
+        setAnalyticsOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => {
+      document.removeEventListener("mousedown", handleOutsideClick);
+    };
+  }, [analyticsOpen]);
 
   const signOut = async () => {
     await supabase.auth.signOut();
@@ -39,6 +72,23 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             >
               {locale === "en" ? "HE" : "EN"}
             </Button>
+            {canViewAnalytics ? (
+              <div ref={analyticsRef} className="relative">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className={cn(
+                    analyticsOpen &&
+                      "border-emerald-500 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-400",
+                  )}
+                  onClick={() => setAnalyticsOpen((prev) => !prev)}
+                >
+                  📊 Analytics
+                </Button>
+                {analyticsOpen ? <LangfusePanel isOpen={analyticsOpen} /> : null}
+              </div>
+            ) : null}
             <Button
               type="button"
               variant="outline"
