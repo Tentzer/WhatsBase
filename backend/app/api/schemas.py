@@ -81,3 +81,20 @@ class WhatsAppStatusResponse(BaseModel):
     phone: str | None = None
     intake_mode: str
     checked_at: datetime | None = None
+
+
+class LangfuseModelCostRow(BaseModel):
+    model_name: str
+    calls: int
+    total_cost_usd: float
+
+
+class LangfuseDailyUsageRow(BaseModel):
+    date: str
+    calls: int
+
+
+class LangfuseAnalyticsResponse(BaseModel):
+    total_cost_this_month_usd: float
+    cost_by_model: list[LangfuseModelCostRow]
+    daily_usage_last_7_days: list[LangfuseDailyUsageRow]

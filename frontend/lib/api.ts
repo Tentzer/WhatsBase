@@ -3,6 +3,7 @@ import type {
   BuildRun,
   BuildStatus,
   BusinessInfoBlock,
+  LangfuseAnalytics,
   MeResponse,
   ProductDraft,
   ProductImageDraft,
@@ -33,6 +34,7 @@ interface ApiClient {
     currentStep?: BuildRun["currentStep"],
   ) => Promise<BuildRun | undefined>;
   getAgentStatus: () => Promise<AgentStatus>;
+  getLangfuseAnalytics: () => Promise<LangfuseAnalytics>;
   sendTestChatMessage: (text: string) => Promise<TestChatResponse>;
   getTestChatHistory: () => Promise<TestChatMessage[]>;
 }
@@ -339,6 +341,25 @@ const realApi: ApiClient = {
     return notWired("PATCH /api/build-runs/:id");
   },
   getAgentStatus: async (): Promise<AgentStatus> => notWired("GET /api/agents/status"),
+  getLangfuseAnalytics: async (): Promise<LangfuseAnalytics> => {
+    const res = await requestJson<{
+      total_cost_this_month_usd: number;
+      cost_by_model: Array<{ model_name: string; calls: number; total_cost_usd: number }>;
+      daily_usage_last_7_days: Array<{ date: string; calls: number }>;
+    }>("/api/langfuse/analytics");
+    return {
+      totalCostThisMonthUsd: Number(res.total_cost_this_month_usd || 0),
+      costByModel: res.cost_by_model.map((item) => ({
+        modelName: item.model_name,
+        calls: Number(item.calls || 0),
+        totalCostUsd: Number(item.total_cost_usd || 0),
+      })),
+      dailyUsageLast7Days: res.daily_usage_last_7_days.map((item) => ({
+        date: item.date,
+        calls: Number(item.calls || 0),
+      })),
+    };
+  },
   sendTestChatMessage: async (text: string): Promise<TestChatResponse> => {
     void text;
     return notWired("POST /api/test-chat");
@@ -346,5 +367,14 @@ const realApi: ApiClient = {
   getTestChatHistory: async (): Promise<TestChatMessage[]> => notWired("GET /api/test-chat/history"),
 };
 
-export const api: ApiClient = useMockApi ? (mockApi as ApiClient) : realApi;
+export const api: ApiClient = useMockApi
+  ? ({
+      ...(mockApi as ApiClient),
+      getLangfuseAnalytics: async (): Promise<LangfuseAnalytics> => ({
+        totalCostThisMonthUsd: 0,
+        costByModel: [],
+        dailyUsageLast7Days: [],
+      }),
+    } as ApiClient)
+  : realApi;
 export { baseUrl };

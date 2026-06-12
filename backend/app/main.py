@@ -12,6 +12,7 @@ import time
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.analytics import router as analytics_router
 from app.api.health import router as health_router
 from app.api.onboarding import router as onboarding_router
 from app.core.config import get_settings
@@ -66,4 +67,5 @@ async def log_requests(request: Request, call_next):  # type: ignore[no-untyped-
 
 app.include_router(health_router)
 app.include_router(onboarding_router)
+app.include_router(analytics_router)
 app.include_router(webhook_router)

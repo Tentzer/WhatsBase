@@ -112,3 +112,20 @@ export interface TestChatMessage {
 export interface TestChatResponse {
   reply: TestChatMessage;
 }
+
+export interface LangfuseModelCost {
+  modelName: string;
+  calls: number;
+  totalCostUsd: number;
+}
+
+export interface LangfuseDailyUsage {
+  date: string;
+  calls: number;
+}
+
+export interface LangfuseAnalytics {
+  totalCostThisMonthUsd: number;
+  costByModel: LangfuseModelCost[];
+  dailyUsageLast7Days: LangfuseDailyUsage[];
+}
