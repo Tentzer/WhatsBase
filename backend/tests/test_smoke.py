@@ -32,6 +32,11 @@ def test_settings_load_without_env():
 
 
 def test_model_registry():
+    builder = get_model("builder")
+    assert builder.provider == "anthropic"
+    assert builder.name == "claude-sonnet-4-6"
+    assert builder.max_tokens == 4096
+    assert builder.temperature == 0.2
     assert get_model("conversation").provider == "anthropic"
     assert get_model("conversation").name == "claude-sonnet-4-6"
     assert get_model("vision").provider == "openai"

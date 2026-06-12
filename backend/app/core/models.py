@@ -5,6 +5,7 @@ params from here. Swapping any model is a one-line change in this file and
 nowhere else. Do not hardcode a model name anywhere outside this module.
 
 Roles:
+  BUILDER      — builder reasoning loop (Anthropic, tool-calling)
   CONVERSATION — runtime conversation agent (Anthropic, native tool use)
   VISION       — builder image captioning (OpenAI, structured JSON output)
   EMBEDDING    — knowledge-base embeddings (OpenAI, multilingual He+En)
@@ -16,7 +17,7 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 Provider = Literal["anthropic", "openai"]
-Role = Literal["conversation", "vision", "embedding"]
+Role = Literal["builder", "conversation", "vision", "embedding"]
 
 
 @dataclass(frozen=True)
@@ -34,6 +35,14 @@ class ModelConfig:
     dimensions: int | None = None
     extra: dict = field(default_factory=dict)
 
+
+BUILDER = ModelConfig(
+    role="builder",
+    provider="anthropic",
+    name="claude-sonnet-4-6",
+    max_tokens=4096,
+    temperature=0.2,
+)
 
 CONVERSATION = ModelConfig(
     role="conversation",
@@ -59,6 +68,7 @@ EMBEDDING = ModelConfig(
 )
 
 REGISTRY: dict[Role, ModelConfig] = {
+    "builder": BUILDER,
     "conversation": CONVERSATION,
     "vision": VISION,
     "embedding": EMBEDDING,
