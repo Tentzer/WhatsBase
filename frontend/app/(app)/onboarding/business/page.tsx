@@ -73,7 +73,7 @@ export default function BusinessOnboardingPage() {
     } finally {
       setHydrating(false);
     }
-  }, [businessInfo.length, router, setTenant, supabase]);
+  }, [businessInfo.length, navigate, setTenant, supabase]);
 
   useEffect(() => {
     const bootstrapTimer = window.setTimeout(() => {
