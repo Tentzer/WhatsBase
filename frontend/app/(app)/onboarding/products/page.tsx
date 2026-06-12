@@ -173,13 +173,21 @@ export default function ProductsOnboardingPage() {
     );
   };
 
+  const [saveError, setSaveError] = useState<string | null>(null);
+
   const saveAndContinue = async () => {
     setSaving(true);
-    const saved = await api.saveProducts(rows);
-    setProducts(saved);
-    setCatalogPhotos(photoLibrary);
-    setSaving(false);
-    router.push("/onboarding/whatsapp");
+    setSaveError(null);
+    try {
+      const saved = await api.saveProducts(rows);
+      setProducts(saved);
+      setCatalogPhotos(photoLibrary);
+      router.push("/onboarding/whatsapp");
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -322,6 +330,11 @@ export default function ProductsOnboardingPage() {
             )}
           </div>
 
+          {saveError ? (
+            <p className="rounded-lg border border-red-500 bg-red-50 p-3 text-sm text-red-700">
+              {saveError}
+            </p>
+          ) : null}
           <Button
             type="button"
             onClick={saveAndContinue}
