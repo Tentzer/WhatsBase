@@ -9,6 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY backend/ ./backend/
+COPY demo_assets/ ./demo_assets/
 
 RUN pip install --no-cache-dir -e ./backend \
     && chmod +x ./backend/scripts/start_api.sh

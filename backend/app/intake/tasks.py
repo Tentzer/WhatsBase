@@ -21,7 +21,7 @@ from app.adapters.whatsapp import get_adapter
 from app.builder.agent import run_build as run_builder
 from app.core.config import get_settings
 from app.core.db import SessionLocal
-from app.core.schema import Agent, BuildRun, WhatsAppInstance
+from app.core.schema import Agent, BuildRun, Product, WhatsAppInstance
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +44,51 @@ def _is_allowed(chat_id: str, allowlist: set[str]) -> bool:
         return False
     digits = chat_id.split("@", 1)[0]
     return digits in allowlist
+
+
+def _resolve_demo_assets_dir() -> Path:
+    """Locate demo_assets for CLI/demo builds (repo root or Docker image)."""
+    base = Path(__file__).resolve()
+    candidates = [
+        base.parents[3] / "demo_assets",
+        base.parents[2] / "demo_assets",
+        Path("/app/demo_assets"),
+    ]
+    for path in candidates:
+        if path.exists():
+            return path
+    return candidates[0]
+
+
+async def _fail_build(
+    tenant_id: str,
+    build_run_id: str | None,
+    reason: str,
+) -> None:
+    async with SessionLocal() as session:
+        if build_run_id:
+            result = await session.execute(
+                select(BuildRun).where(
+                    BuildRun.id == build_run_id,
+                    BuildRun.tenant_id == tenant_id,
+                )
+            )
+            row = result.scalar_one_or_none()
+            if row is not None:
+                report = dict(row.report or {})
+                report["ui_progress_pct"] = 100
+                report["ui_current_step"] = "finalize"
+                row.status = "failed"
+                row.error = reason
+                row.report = report
+                row.finished_at = datetime.now(timezone.utc)
+
+        agent_result = await session.execute(select(Agent).where(Agent.tenant_id == tenant_id))
+        agent = agent_result.scalar_one_or_none()
+        if agent is not None:
+            agent.status = "failed"
+        await session.commit()
+    logger.warning("run_build failed for tenant=%s: %s", tenant_id, reason)
 
 
 async def process_incoming_message(ctx: dict, payload: dict) -> None:
@@ -143,9 +188,9 @@ async def run_build(ctx: dict, payload: dict) -> None:
     build_run_id = payload.get("build_run_id")
     dry_run = bool(payload.get("dry_run", False))
     assets_dir_raw = payload.get("assets_dir")
-    assets_dir = Path(assets_dir_raw) if assets_dir_raw else Path(__file__).resolve().parents[2] / "demo_assets"
     settings = get_settings()
 
+    catalog_source = "assets"
     async with SessionLocal() as session:
         if build_run_id:
             result = await session.execute(
@@ -156,6 +201,8 @@ async def run_build(ctx: dict, payload: dict) -> None:
             )
             row = result.scalar_one_or_none()
             if row is not None:
+                manifest = row.input_manifest or {}
+                catalog_source = str(manifest.get("source") or manifest.get("catalog_source") or "assets")
                 row.status = "running"
                 report = dict(row.report or {})
                 report["ui_progress_pct"] = 10
@@ -164,50 +211,53 @@ async def run_build(ctx: dict, payload: dict) -> None:
                 row.started_at = datetime.now(timezone.utc)
                 await session.commit()
 
+        if catalog_source == "api":
+            product_count = await session.scalar(
+                select(Product.id).where(Product.tenant_id == tenant_id).limit(1)
+            )
+            if product_count is None:
+                await _fail_build(
+                    tenant_id,
+                    build_run_id,
+                    "No products found for tenant — add products before building",
+                )
+                return
+        else:
+            assets_dir = Path(assets_dir_raw) if assets_dir_raw else _resolve_demo_assets_dir()
+            if not assets_dir.exists():
+                await _fail_build(
+                    tenant_id,
+                    build_run_id,
+                    f"Assets directory not found: {assets_dir}",
+                )
+                return
+
     if not settings.anthropic_api_key or not settings.openai_api_key:
-        logger.info(
-            "run_build skipped automatic builder execution for tenant=%s: missing LLM credentials",
+        await _fail_build(
             tenant_id,
+            build_run_id,
+            "Missing LLM credentials (ANTHROPIC_API_KEY and/or OPENAI_API_KEY)",
         )
         return
-    if not assets_dir.exists():
-        logger.info("run_build skipped automatic builder execution: assets_dir missing (%s)", assets_dir)
-        return
+
+    assets_dir = Path(assets_dir_raw) if assets_dir_raw else _resolve_demo_assets_dir()
 
     try:
         report = await run_builder(
             tenant_id=tenant_id,
             assets_dir=assets_dir,
             dry_run=dry_run,
+            build_run_id=build_run_id,
+            catalog_source=catalog_source,
         )
     except Exception as exc:  # noqa: BLE001
         logger.exception("run_build failed for tenant=%s", tenant_id)
-        async with SessionLocal() as session:
-            if build_run_id:
-                result = await session.execute(
-                    select(BuildRun).where(
-                        BuildRun.id == build_run_id,
-                        BuildRun.tenant_id == tenant_id,
-                    )
-                )
-                row = result.scalar_one_or_none()
-                if row is not None:
-                    row.status = "failed"
-                    report_dict = dict(row.report or {})
-                    report_dict["ui_progress_pct"] = 100
-                    report_dict["ui_current_step"] = "finalize"
-                    row.report = report_dict
-                    row.error = str(exc)
-                    row.finished_at = datetime.now(timezone.utc)
-            agent_result = await session.execute(select(Agent).where(Agent.tenant_id == tenant_id))
-            agent = agent_result.scalar_one_or_none()
-            if agent is not None:
-                agent.status = "failed"
-            await session.commit()
+        await _fail_build(tenant_id, build_run_id, str(exc))
         return
 
-    async with SessionLocal() as session:
-        if build_run_id:
+    if build_run_id and catalog_source == "assets":
+        # API catalog builds finalize inside the pipeline; asset builds may need a sync pass.
+        async with SessionLocal() as session:
             result = await session.execute(
                 select(BuildRun).where(
                     BuildRun.id == build_run_id,
@@ -215,7 +265,7 @@ async def run_build(ctx: dict, payload: dict) -> None:
                 )
             )
             row = result.scalar_one_or_none()
-            if row is not None:
+            if row is not None and row.status == "running":
                 builder_report = report.to_dict()
                 builder_report["ui_progress_pct"] = 100
                 builder_report["ui_current_step"] = "finalize"

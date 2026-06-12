@@ -409,7 +409,7 @@ async def start_build(
     build_run = BuildRun(
         tenant_id=tenant_id,
         status="queued",
-        input_manifest={"source": "api"},
+        input_manifest={"source": "api", "catalog_source": "api"},
         report={"ui_progress_pct": 5, "ui_current_step": "collect_assets"},
         started_at=datetime.now(timezone.utc),
     )
@@ -469,23 +469,23 @@ async def patch_build_run(
     if row is None:
         raise HTTPException(status_code=404, detail="Build run not found")
 
+    if payload.status in {"passed", "failed"}:
+        raise HTTPException(
+            status_code=400,
+            detail="Build status can only be set by the builder worker — poll GET /api/build-runs/{id}",
+        )
+
     row.status = payload.status
     report = dict(row.report or {})
     report["ui_progress_pct"] = payload.progress_pct
     report["ui_current_step"] = payload.current_step
     row.report = report
-    if payload.status in {"passed", "failed"}:
-        row.finished_at = datetime.now(timezone.utc)
 
     agent_result = await session.execute(select(Agent).where(Agent.tenant_id == tenant_id))
     agent = agent_result.scalar_one_or_none()
     if agent is None:
         agent = Agent(tenant_id=tenant_id, status="building")
         session.add(agent)
-    if payload.status == "passed":
-        agent.status = "live"
-    elif payload.status == "failed":
-        agent.status = "failed"
     else:
         agent.status = "building"
 

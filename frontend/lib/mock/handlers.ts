@@ -21,6 +21,33 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
+function advanceMockBuild(status: BuildStatus, progressPct: number, currentStep?: BuildRun["currentStep"]) {
+  const state = loadState();
+  if (!state.buildRun) return;
+  const report =
+    status === "passed"
+      ? {
+          productsDetected: state.products.length,
+          productsCreated: state.products.length,
+          assumptions: [
+            "Some product attributes were inferred from image names.",
+            "Missing prices defaulted to owner-provided CSV values.",
+          ],
+          selfTest: DEMO_SELF_TEST_RESULTS,
+        }
+      : undefined;
+  const updatedRun: BuildRun = {
+    ...state.buildRun,
+    status,
+    progressPct,
+    currentStep,
+    report,
+    updatedAt: nowIso(),
+  };
+  const agentStatus: AgentStatus = status === "passed" ? "live" : status === "failed" ? "failed" : "building";
+  updateState((prev) => ({ ...prev, buildRun: updatedRun, agentStatus }));
+}
+
 function buildAgentReply(text: string): TestChatMessage {
   const state = loadState();
   const normalized = text.toLowerCase();
@@ -170,6 +197,22 @@ export const mockApi = {
       updatedAt: createdAt,
     };
     updateState((prev) => ({ ...prev, buildRun: run, agentStatus: "building" }));
+
+    const timeline = [
+      { step: "collect_assets" as const, progress: 15 },
+      { step: "caption_images" as const, progress: 45 },
+      { step: "index_embeddings" as const, progress: 70 },
+      { step: "run_self_test" as const, progress: 92 },
+      { step: "finalize" as const, progress: 100 },
+    ];
+
+    timeline.forEach((point, index) => {
+      window.setTimeout(() => {
+        const status = point.progress === 100 ? "passed" : "running";
+        advanceMockBuild(status, point.progress, point.step);
+      }, (index + 1) * 3500);
+    });
+
     return run;
   },
 
@@ -180,31 +223,8 @@ export const mockApi = {
   },
 
   async setBuildState(status: BuildStatus, progressPct: number, currentStep?: BuildRun["currentStep"]) {
-    const state = loadState();
-    if (!state.buildRun) return undefined;
-    const report =
-      status === "passed"
-        ? {
-            productsDetected: state.products.length,
-            productsCreated: state.products.length,
-            assumptions: [
-              "Some product attributes were inferred from image names.",
-              "Missing prices defaulted to owner-provided CSV values.",
-            ],
-            selfTest: DEMO_SELF_TEST_RESULTS,
-          }
-        : undefined;
-    const updatedRun: BuildRun = {
-      ...state.buildRun,
-      status,
-      progressPct,
-      currentStep,
-      report,
-      updatedAt: nowIso(),
-    };
-    const agentStatus: AgentStatus = status === "passed" ? "live" : status === "failed" ? "failed" : "building";
-    updateState((prev) => ({ ...prev, buildRun: updatedRun, agentStatus }));
-    return updatedRun;
+    advanceMockBuild(status, progressPct, currentStep);
+    return loadState().buildRun;
   },
 
   async getAgentStatus(): Promise<AgentStatus> {
