@@ -22,20 +22,24 @@ export function WizardStepper() {
   return (
     <nav aria-label="Onboarding progress" className="mb-8">
       <ol className="relative flex items-start justify-between">
-        {/* Background track line */}
+        {/* Background track — from center of step 1 to center of step N */}
         <li
           aria-hidden
-          className="pointer-events-none absolute inset-x-0 top-4 mx-[2rem] h-px bg-border"
+          className="pointer-events-none absolute top-4 h-px bg-border"
+          style={{
+            left: `calc(100% / ${steps.length * 2})`,
+            right: `calc(100% / ${steps.length * 2})`,
+          }}
         />
 
-        {/* Filled progress line */}
+        {/* Filled progress line — grows to center of current step */}
         {currentIndex > 0 && (
           <li
             aria-hidden
             className="pointer-events-none absolute top-4 h-px bg-emerald-500 transition-all duration-500"
             style={{
-              left: "2rem",
-              width: `calc(${(currentIndex / (steps.length - 1)) * 100}% - 4rem)`,
+              left: `calc(100% / ${steps.length * 2})`,
+              width: `calc(${currentIndex} * 100% / ${steps.length})`,
             }}
           />
         )}
