@@ -5,10 +5,11 @@ params from here. Swapping any model is a one-line change in this file and
 nowhere else. Do not hardcode a model name anywhere outside this module.
 
 Roles:
-  BUILDER      — builder reasoning loop (Anthropic, tool-calling)
-  CONVERSATION — runtime conversation agent (Anthropic, native tool use)
-  VISION       — builder image captioning (OpenAI, structured JSON output)
-  EMBEDDING    — knowledge-base embeddings (OpenAI, multilingual He+En)
+  BUILDER         — builder reasoning loop (Anthropic, tool-calling)
+  CONVERSATION    — runtime conversation agent (Anthropic, native tool use)
+  SETUP_ASSISTANT — site onboarding guide widget (Anthropic, cheap/fast)
+  VISION          — builder image captioning (OpenAI, structured JSON output)
+  EMBEDDING       — knowledge-base embeddings (OpenAI, multilingual He+En)
 """
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 Provider = Literal["anthropic", "openai"]
-Role = Literal["builder", "conversation", "vision", "embedding"]
+Role = Literal["builder", "conversation", "setup_assistant", "vision", "embedding"]
 
 
 @dataclass(frozen=True)
@@ -52,6 +53,14 @@ CONVERSATION = ModelConfig(
     temperature=0.3,
 )
 
+SETUP_ASSISTANT = ModelConfig(
+    role="setup_assistant",
+    provider="anthropic",
+    name="claude-haiku-4-5",
+    max_tokens=1024,
+    temperature=0.3,
+)
+
 VISION = ModelConfig(
     role="vision",
     provider="openai",
@@ -70,6 +79,7 @@ EMBEDDING = ModelConfig(
 REGISTRY: dict[Role, ModelConfig] = {
     "builder": BUILDER,
     "conversation": CONVERSATION,
+    "setup_assistant": SETUP_ASSISTANT,
     "vision": VISION,
     "embedding": EMBEDDING,
 }
