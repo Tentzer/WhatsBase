@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 from logging.config import fileConfig
 
-from sqlalchemy.ext.asyncio import async_engine_from_config
+from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
 from alembic import context
@@ -49,11 +49,18 @@ def do_run_migrations(connection) -> None:
         context.run_migrations()
 
 
+def _connect_args(url: str) -> dict:
+    if "supabase.co" in url:
+        return {"ssl": True}
+    return {}
+
+
 async def run_migrations_online() -> None:
-    connectable = async_engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
+    db_url = get_settings().database_url
+    connectable = create_async_engine(
+        db_url,
         poolclass=NullPool,
+        connect_args=_connect_args(db_url),
     )
     async with connectable.connect() as connection:
         await connection.run_sync(do_run_migrations)

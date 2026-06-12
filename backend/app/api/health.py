@@ -11,6 +11,12 @@ from app.core.db import get_session
 router = APIRouter(tags=["health"])
 
 
+@router.get("/health/live")
+async def health_live() -> dict[str, str]:
+    """Liveness probe — no DB dependency (used by Railway healthcheck)."""
+    return {"status": "ok"}
+
+
 @router.get("/health")
 async def health(session: AsyncSession = Depends(get_session)) -> dict[str, str]:
     db_status = "ok"

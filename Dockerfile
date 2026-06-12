@@ -17,4 +17,4 @@ WORKDIR /app/backend
 
 # Railway sets $PORT. Override start command on the worker service to:
 #   python -m app.worker
-CMD sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"
+CMD sh -c "alembic upgrade head || echo 'Migration failed — check DATABASE_URL'; exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"
