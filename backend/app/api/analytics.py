@@ -77,7 +77,16 @@ def _post_metrics(query: dict[str, Any]) -> dict[str, Any]:
                 with urlopen(fallback_request, timeout=20) as response:  # noqa: S310
                     raw = response.read().decode("utf-8")
                     return json.loads(raw)
-            except (HTTPError, URLError, json.JSONDecodeError) as fallback_exc:
+            except HTTPError as fallback_exc:
+                fallback_detail = fallback_exc.read().decode("utf-8", errors="ignore")
+                raise HTTPException(
+                    status_code=502,
+                    detail=(
+                        "Langfuse fallback request failed "
+                        f"({fallback_exc.code}): {fallback_detail}"
+                    ),
+                ) from fallback_exc
+            except (URLError, json.JSONDecodeError) as fallback_exc:
                 raise HTTPException(
                     status_code=502,
                     detail=f"Langfuse fallback request failed: {fallback_exc}",
@@ -107,7 +116,7 @@ def _build_daily_usage(rows: list[dict[str, Any]], now: datetime) -> list[Langfu
         day_key = str(row.get("time_dimension") or row.get("timeDimension") or "")[:10]
         if not day_key:
             continue
-        calls = _to_int(row.get("count_countObservations", row.get("count_count", 0)))
+        calls = _to_int(row.get("count_count", row.get("count_countObservations", 0)))
         day_calls[day_key] = calls
 
     output: list[LangfuseDailyUsageRow] = []
@@ -147,7 +156,7 @@ async def get_langfuse_analytics(
             "view": "observations",
             "metrics": [
                 {"measure": "totalCost", "aggregation": "sum"},
-                {"measure": "countObservations", "aggregation": "count"},
+                {"measure": "count", "aggregation": "count"},
             ],
             "dimensions": [{"field": "providedModelName"}],
             "fromTimestamp": thirty_days_ago.isoformat(),
@@ -159,7 +168,7 @@ async def get_langfuse_analytics(
     daily_usage_raw = _post_metrics(
         {
             "view": "observations",
-            "metrics": [{"measure": "countObservations", "aggregation": "count"}],
+            "metrics": [{"measure": "count", "aggregation": "count"}],
             "dimensions": [],
             "timeDimension": {"granularity": "day"},
             "fromTimestamp": six_days_ago.isoformat(),
@@ -178,7 +187,7 @@ async def get_langfuse_analytics(
     cost_by_model = [
         LangfuseModelCostRow(
             model_name=str(row.get("providedModelName") or "Unknown"),
-            calls=_to_int(row.get("count_countObservations", row.get("count_count", 0))),
+            calls=_to_int(row.get("count_count", row.get("count_countObservations", 0))),
             total_cost_usd=_to_float(row.get("sum_totalCost")),
         )
         for row in model_rows
