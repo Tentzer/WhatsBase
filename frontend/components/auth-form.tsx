@@ -50,16 +50,30 @@ export function AuthForm({ mode }: AuthFormProps) {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <Card className="w-full max-w-md">
-        <CardHeader>
-          <CardTitle>{isLogin ? "Welcome back" : "Create your account"}</CardTitle>
+    <div className="flex min-h-screen flex-col items-center justify-center px-4 py-12">
+      {/* Brand mark */}
+      <div className="mb-8 flex flex-col items-center gap-2">
+        <Link href="/" className="text-2xl font-bold tracking-tight text-emerald-700">
+          WhatsBase
+        </Link>
+        <p className="text-sm text-muted-foreground">
+          {isLogin ? "Welcome back" : "Your WhatsApp sales agent awaits"}
+        </p>
+      </div>
+
+      {/* Card */}
+      <Card className="w-full max-w-md shadow-xl shadow-emerald-100/40 dark:shadow-emerald-900/20">
+        <CardHeader className="space-y-1 pb-4">
+          <CardTitle className="text-xl">
+            {isLogin ? "Sign in to your account" : "Create your account"}
+          </CardTitle>
           <CardDescription>
             {isLogin
-              ? "Sign in to continue onboarding your WhatsApp agent."
-              : "Create an account to start building your WhatsApp agent."}
+              ? "Enter your email and password to continue."
+              : "Start building your WhatsApp agent in minutes."}
           </CardDescription>
         </CardHeader>
+
         <CardContent>
           <form className="space-y-4" onSubmit={onSubmit}>
             <div className="space-y-2">
@@ -69,9 +83,11 @@ export function AuthForm({ mode }: AuthFormProps) {
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@example.com"
                 required
               />
             </div>
+
             <div className="space-y-2">
               <Label htmlFor="password">Password</Label>
               <div className="relative">
@@ -80,6 +96,7 @@ export function AuthForm({ mode }: AuthFormProps) {
                   type={showPassword ? "text" : "password"}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
+                  placeholder={isLogin ? "Your password" : "At least 6 characters"}
                   minLength={6}
                   required
                   className="pe-10"
@@ -94,23 +111,35 @@ export function AuthForm({ mode }: AuthFormProps) {
                 </button>
               </div>
             </div>
-            {error ? <p className="text-sm text-red-600">{error}</p> : null}
-            {success ? <p className="text-sm text-emerald-700">{success}</p> : null}
+
+            {error ? (
+              <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-600 dark:bg-red-950/40 dark:text-red-400">
+                {error}
+              </p>
+            ) : null}
+
+            {success ? (
+              <p className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400">
+                {success}
+              </p>
+            ) : null}
+
             <Button
               type="submit"
               disabled={loading}
               className="w-full bg-emerald-600 hover:bg-emerald-700"
             >
-              {loading ? "Please wait..." : isLogin ? "Sign in" : "Sign up"}
+              {loading ? "Please wait…" : isLogin ? "Sign in" : "Create account"}
             </Button>
           </form>
-          <p className="mt-4 text-center text-sm text-muted-foreground">
-            {isLogin ? "Need an account?" : "Already have an account?"}{" "}
+
+          <p className="mt-5 text-center text-sm text-muted-foreground">
+            {isLogin ? "Don't have an account?" : "Already have an account?"}{" "}
             <Link
-              className="font-medium text-emerald-700 hover:text-emerald-800"
+              className="font-medium text-emerald-700 hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300"
               href={isLogin ? "/signup" : "/login"}
             >
-              {isLogin ? "Sign up" : "Sign in"}
+              {isLogin ? "Sign up free" : "Sign in"}
             </Link>
           </p>
         </CardContent>
