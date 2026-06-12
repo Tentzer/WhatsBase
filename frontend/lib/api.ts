@@ -458,6 +458,7 @@ const realApi: ApiClient = {
       total_cost_this_month_usd: number;
       cost_by_model: Array<{ model_name: string; calls: number; total_cost_usd: number }>;
       daily_usage_last_7_days: Array<{ date: string; calls: number }>;
+      latency_by_name: Array<{ name: string; p50_ms: number; p95_ms: number; calls: number }>;
     }>("/api/langfuse/analytics");
     return {
       totalCostThisMonthUsd: Number(res.total_cost_this_month_usd || 0),
@@ -468,6 +469,12 @@ const realApi: ApiClient = {
       })),
       dailyUsageLast7Days: res.daily_usage_last_7_days.map((item) => ({
         date: item.date,
+        calls: Number(item.calls || 0),
+      })),
+      latencyByName: (res.latency_by_name ?? []).map((item) => ({
+        name: item.name,
+        p50Ms: Number(item.p50_ms || 0),
+        p95Ms: Number(item.p95_ms || 0),
         calls: Number(item.calls || 0),
       })),
     };
@@ -571,6 +578,7 @@ export const api: ApiClient = useMockApi
         totalCostThisMonthUsd: 0,
         costByModel: [],
         dailyUsageLast7Days: [],
+        latencyByName: [],
       }),
     } as ApiClient)
   : realApi;
