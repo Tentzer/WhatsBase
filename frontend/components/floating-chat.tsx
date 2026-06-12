@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { MessageCircle, X, Send, Bot } from "lucide-react";
+import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useLocale } from "@/lib/locale";
 
@@ -16,20 +17,6 @@ const WELCOME: Message = {
   role: "assistant",
   text: "Hi! I'm your WhatsBase setup assistant 👋\n\nI can walk you through building your WhatsApp bot — uploading products, connecting your number, and going live. What would you like help with?",
 };
-
-async function getReply(userText: string): Promise<string> {
-  await new Promise((r) => setTimeout(r, 900));
-  const t = userText.toLowerCase();
-  if (t.includes("product") || t.includes("catalog") || t.includes("מוצר"))
-    return "Go to the Products step in the onboarding wizard. You can add product names, prices, and photos there — the AI will learn from them automatically.";
-  if (t.includes("whatsapp") || t.includes("number") || t.includes("מספר"))
-    return "After the Products step, the WhatsApp step will ask you to connect your Green API instance. You'll need your instance ID and token from green-api.com.";
-  if (t.includes("build") || t.includes("agent") || t.includes("bot"))
-    return "Once you've filled in your business info and products, hit Build in the last onboarding step. The AI will read your catalog and generate a custom bot for you.";
-  if (t.includes("hello") || t.includes("hi") || t.includes("hey") || t.includes("שלום"))
-    return "Hey there! 👋 Ask me anything about setting up your WhatsApp bot — I'm here to help.";
-  return "I'm still learning, but a real AI assistant will be connected here soon to help you set up your WhatsBase bot. Try the onboarding wizard — it walks you through every step!";
-}
 
 export function FloatingChat() {
   const { dir } = useLocale();
@@ -47,6 +34,19 @@ export function FloatingChat() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  useEffect(() => {
+    void api
+      .getSetupAssistantHistory()
+      .then((history) => {
+        if (history.length > 0) {
+          setMessages(history.map((h) => ({ id: h.id, role: h.role, text: h.text })));
+        }
+      })
+      .catch(() => {
+        // Keep local welcome message when API is unavailable.
+      });
+  }, []);
 
   useEffect(() => {
     if (open) {
@@ -76,8 +76,19 @@ export function FloatingChat() {
     setInput("");
     setSending(true);
     setMessages((prev) => [...prev, { id: `u_${Date.now()}`, role: "user", text }]);
-    const replyText = await getReply(text);
-    setMessages((prev) => [...prev, { id: `a_${Date.now()}`, role: "assistant", text: replyText }]);
+    try {
+      const response = await api.sendSetupAssistantMessage(text);
+      setMessages((prev) => [...prev, { id: response.reply.id, role: "assistant", text: response.reply.text }]);
+    } catch {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `a_${Date.now()}`,
+          role: "assistant",
+          text: "I had trouble reaching the setup assistant. Please try again in a moment.",
+        },
+      ]);
+    }
     setSending(false);
   };
 

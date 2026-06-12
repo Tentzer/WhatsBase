@@ -11,14 +11,17 @@ directly from the adapter inside a task — SPEC invariant.
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
+from pathlib import Path
 
 from arq.connections import ArqRedis
 from sqlalchemy import select
 
 from app.adapters.whatsapp import get_adapter
+from app.builder.agent import run_build as run_builder
 from app.core.config import get_settings
 from app.core.db import SessionLocal
-from app.core.schema import WhatsAppInstance
+from app.core.schema import Agent, BuildRun, WhatsAppInstance
 
 logger = logging.getLogger(__name__)
 
@@ -125,3 +128,98 @@ async def send_outgoing(ctx: dict, payload: dict) -> None:
         payload["chat_id"],
         payload.get("text") or "[image]",
     )
+
+
+async def run_build(ctx: dict, payload: dict) -> None:
+    """Queue entrypoint for API-triggered builds.
+
+    Expected payload:
+      - tenant_id (required)
+      - build_run_id (optional)
+      - assets_dir (optional, defaults to repo demo_assets)
+      - dry_run (optional, default False)
+    """
+    tenant_id = payload["tenant_id"]
+    build_run_id = payload.get("build_run_id")
+    dry_run = bool(payload.get("dry_run", False))
+    assets_dir_raw = payload.get("assets_dir")
+    assets_dir = Path(assets_dir_raw) if assets_dir_raw else Path(__file__).resolve().parents[2] / "demo_assets"
+    settings = get_settings()
+
+    async with SessionLocal() as session:
+        if build_run_id:
+            result = await session.execute(
+                select(BuildRun).where(
+                    BuildRun.id == build_run_id,
+                    BuildRun.tenant_id == tenant_id,
+                )
+            )
+            row = result.scalar_one_or_none()
+            if row is not None:
+                row.status = "running"
+                report = dict(row.report or {})
+                report["ui_progress_pct"] = 10
+                report["ui_current_step"] = "collect_assets"
+                row.report = report
+                row.started_at = datetime.now(timezone.utc)
+                await session.commit()
+
+    if not settings.anthropic_api_key or not settings.openai_api_key:
+        logger.info(
+            "run_build skipped automatic builder execution for tenant=%s: missing LLM credentials",
+            tenant_id,
+        )
+        return
+    if not assets_dir.exists():
+        logger.info("run_build skipped automatic builder execution: assets_dir missing (%s)", assets_dir)
+        return
+
+    try:
+        report = await run_builder(
+            tenant_id=tenant_id,
+            assets_dir=assets_dir,
+            dry_run=dry_run,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("run_build failed for tenant=%s", tenant_id)
+        async with SessionLocal() as session:
+            if build_run_id:
+                result = await session.execute(
+                    select(BuildRun).where(
+                        BuildRun.id == build_run_id,
+                        BuildRun.tenant_id == tenant_id,
+                    )
+                )
+                row = result.scalar_one_or_none()
+                if row is not None:
+                    row.status = "failed"
+                    report_dict = dict(row.report or {})
+                    report_dict["ui_progress_pct"] = 100
+                    report_dict["ui_current_step"] = "finalize"
+                    row.report = report_dict
+                    row.error = str(exc)
+                    row.finished_at = datetime.now(timezone.utc)
+            agent_result = await session.execute(select(Agent).where(Agent.tenant_id == tenant_id))
+            agent = agent_result.scalar_one_or_none()
+            if agent is not None:
+                agent.status = "failed"
+            await session.commit()
+        return
+
+    async with SessionLocal() as session:
+        if build_run_id:
+            result = await session.execute(
+                select(BuildRun).where(
+                    BuildRun.id == build_run_id,
+                    BuildRun.tenant_id == tenant_id,
+                )
+            )
+            row = result.scalar_one_or_none()
+            if row is not None:
+                builder_report = report.to_dict()
+                builder_report["ui_progress_pct"] = 100
+                builder_report["ui_current_step"] = "finalize"
+                row.report = builder_report
+                row.status = "passed" if builder_report.get("self_test", {}).get("passed") else "failed"
+                row.finished_at = datetime.now(timezone.utc)
+                await session.commit()

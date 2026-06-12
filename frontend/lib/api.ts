@@ -37,14 +37,13 @@ interface ApiClient {
   getLangfuseAnalytics: () => Promise<LangfuseAnalytics>;
   sendTestChatMessage: (text: string) => Promise<TestChatResponse>;
   getTestChatHistory: () => Promise<TestChatMessage[]>;
+  sendSetupAssistantMessage: (text: string) => Promise<TestChatResponse>;
+  getSetupAssistantHistory: () => Promise<TestChatMessage[]>;
 }
 
 const useMockApi = process.env.NEXT_PUBLIC_USE_MOCK_API !== "false";
 const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
-
-async function notWired(endpoint: string): Promise<never> {
-  throw new Error(`Real API not wired yet for ${endpoint}. Set NEXT_PUBLIC_USE_MOCK_API=true.`);
-}
+let activeBuildRunId: string | null = null;
 
 function toBackendUrl(path: string): string {
   const normalizedBase = baseUrl.endsWith("/") ? baseUrl.slice(0, -1) : baseUrl;
@@ -329,18 +328,131 @@ const realApi: ApiClient = {
       checkedAt: res.checked_at ?? undefined,
     };
   },
-  startBuild: async (): Promise<BuildRun> => notWired("POST /api/build"),
+  startBuild: async (): Promise<BuildRun> => {
+    const res = await requestJson<{
+      id: string;
+      status: BuildStatus;
+      current_step?: BuildRun["currentStep"] | null;
+      progress_pct: number;
+      report?: {
+        products_detected: number;
+        products_created: number;
+        assumptions: string[];
+        self_test: Array<{ question: string; answer_summary: string; passed: boolean }>;
+      } | null;
+      created_at: string;
+      updated_at: string;
+    }>("/api/build", { method: "POST" });
+    activeBuildRunId = res.id;
+    return {
+      id: res.id,
+      status: res.status,
+      currentStep: res.current_step ?? undefined,
+      progressPct: Number(res.progress_pct || 0),
+      report: res.report
+        ? {
+            productsDetected: Number(res.report.products_detected || 0),
+            productsCreated: Number(res.report.products_created || 0),
+            assumptions: res.report.assumptions ?? [],
+            selfTest: (res.report.self_test ?? []).map((item) => ({
+              question: item.question,
+              answerSummary: item.answer_summary,
+              passed: Boolean(item.passed),
+            })),
+          }
+        : undefined,
+      createdAt: res.created_at,
+      updatedAt: res.updated_at,
+    };
+  },
   getBuildRun: async (buildRunId: string): Promise<BuildRun | undefined> => {
-    void buildRunId;
-    return notWired("GET /api/build-runs/:id");
+    const res = await requestJson<{
+      id: string;
+      status: BuildStatus;
+      current_step?: BuildRun["currentStep"] | null;
+      progress_pct: number;
+      report?: {
+        products_detected: number;
+        products_created: number;
+        assumptions: string[];
+        self_test: Array<{ question: string; answer_summary: string; passed: boolean }>;
+      } | null;
+      created_at: string;
+      updated_at: string;
+    }>(`/api/build-runs/${buildRunId}`);
+    activeBuildRunId = res.id;
+    return {
+      id: res.id,
+      status: res.status,
+      currentStep: res.current_step ?? undefined,
+      progressPct: Number(res.progress_pct || 0),
+      report: res.report
+        ? {
+            productsDetected: Number(res.report.products_detected || 0),
+            productsCreated: Number(res.report.products_created || 0),
+            assumptions: res.report.assumptions ?? [],
+            selfTest: (res.report.self_test ?? []).map((item) => ({
+              question: item.question,
+              answerSummary: item.answer_summary,
+              passed: Boolean(item.passed),
+            })),
+          }
+        : undefined,
+      createdAt: res.created_at,
+      updatedAt: res.updated_at,
+    };
   },
   setBuildState: async (status, progressPct, currentStep): Promise<BuildRun | undefined> => {
-    void status;
-    void progressPct;
-    void currentStep;
-    return notWired("PATCH /api/build-runs/:id");
+    const currentBuildId = activeBuildRunId;
+    if (!currentBuildId) {
+      return undefined;
+    }
+    const res = await requestJson<{
+      id: string;
+      status: BuildStatus;
+      current_step?: BuildRun["currentStep"] | null;
+      progress_pct: number;
+      report?: {
+        products_detected: number;
+        products_created: number;
+        assumptions: string[];
+        self_test: Array<{ question: string; answer_summary: string; passed: boolean }>;
+      } | null;
+      created_at: string;
+      updated_at: string;
+    }>(`/api/build-runs/${currentBuildId}`, {
+      method: "PATCH",
+      body: {
+        status,
+        progress_pct: progressPct,
+        current_step: currentStep ?? null,
+      },
+    });
+    return {
+      id: res.id,
+      status: res.status,
+      currentStep: res.current_step ?? undefined,
+      progressPct: Number(res.progress_pct || 0),
+      report: res.report
+        ? {
+            productsDetected: Number(res.report.products_detected || 0),
+            productsCreated: Number(res.report.products_created || 0),
+            assumptions: res.report.assumptions ?? [],
+            selfTest: (res.report.self_test ?? []).map((item) => ({
+              question: item.question,
+              answerSummary: item.answer_summary,
+              passed: Boolean(item.passed),
+            })),
+          }
+        : undefined,
+      createdAt: res.created_at,
+      updatedAt: res.updated_at,
+    };
   },
-  getAgentStatus: async (): Promise<AgentStatus> => notWired("GET /api/agents/status"),
+  getAgentStatus: async (): Promise<AgentStatus> => {
+    const res = await requestJson<{ status: AgentStatus }>("/api/agents/status");
+    return res.status;
+  },
   getLangfuseAnalytics: async (): Promise<LangfuseAnalytics> => {
     const res = await requestJson<{
       total_cost_this_month_usd: number;
@@ -361,10 +473,95 @@ const realApi: ApiClient = {
     };
   },
   sendTestChatMessage: async (text: string): Promise<TestChatResponse> => {
-    void text;
-    return notWired("POST /api/test-chat");
+    const res = await requestJson<{
+      reply: {
+        id: string;
+        role: "assistant";
+        text: string;
+        created_at: string;
+        cards?: Array<{
+          id: string;
+          image_url?: string | null;
+          name_he: string;
+          name_en: string;
+          price: number;
+          currency: string;
+        }> | null;
+      };
+    }>("/api/test-chat", {
+      method: "POST",
+      body: { text },
+    });
+    return {
+      reply: {
+        id: res.reply.id,
+        role: "assistant",
+        text: res.reply.text,
+        createdAt: res.reply.created_at,
+        cards: (res.reply.cards ?? []).map((card) => ({
+          id: card.id,
+          imageUrl: card.image_url ?? undefined,
+          nameHe: card.name_he,
+          nameEn: card.name_en,
+          price: Number(card.price || 0),
+          currency: card.currency,
+        })),
+      },
+    };
   },
-  getTestChatHistory: async (): Promise<TestChatMessage[]> => notWired("GET /api/test-chat/history"),
+  getTestChatHistory: async (): Promise<TestChatMessage[]> => {
+    const res = await requestJson<
+      Array<{
+        id: string;
+        role: "user" | "assistant";
+        text: string;
+        created_at: string;
+      }>
+    >("/api/test-chat/history");
+    return res.map((item) => ({
+      id: item.id,
+      role: item.role,
+      text: item.text,
+      createdAt: item.created_at,
+    }));
+  },
+  sendSetupAssistantMessage: async (text: string): Promise<TestChatResponse> => {
+    const res = await requestJson<{
+      reply: {
+        id: string;
+        role: "assistant";
+        text: string;
+        created_at: string;
+      };
+    }>("/api/setup-assistant/chat", {
+      method: "POST",
+      body: { text },
+    });
+    return {
+      reply: {
+        id: res.reply.id,
+        role: "assistant",
+        text: res.reply.text,
+        createdAt: res.reply.created_at,
+      },
+    };
+  },
+  getSetupAssistantHistory: async (): Promise<TestChatMessage[]> => {
+    const res = await requestJson<
+      Array<{
+        id: string;
+        role: "user" | "assistant";
+        text: string;
+        created_at: string;
+      }>
+    >("/api/setup-assistant/history");
+    return res.map((item) => ({
+      id: item.id,
+      role: item.role,
+      text: item.text,
+      createdAt: item.created_at,
+    }));
+  },
 };
 
 export const api: ApiClient = useMockApi

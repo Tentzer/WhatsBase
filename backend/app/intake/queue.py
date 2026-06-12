@@ -25,7 +25,11 @@ async def get_redis_pool() -> ArqRedis:
 class WorkerSettings:
     from app.intake import tasks as _tasks  # evaluated at import time
 
-    functions = [_tasks.process_incoming_message, _tasks.send_outgoing]
+    functions = [
+        _tasks.process_incoming_message,
+        _tasks.send_outgoing,
+        _tasks.run_build,
+    ]
     redis_settings = _redis_settings()
 
     @staticmethod

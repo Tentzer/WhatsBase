@@ -98,3 +98,73 @@ class LangfuseAnalyticsResponse(BaseModel):
     total_cost_this_month_usd: float
     cost_by_model: list[LangfuseModelCostRow]
     daily_usage_last_7_days: list[LangfuseDailyUsageRow]
+
+
+class BuildQuestionResultResponse(BaseModel):
+    question: str
+    answer_summary: str
+    passed: bool
+
+
+class BuildReportResponse(BaseModel):
+    products_detected: int
+    products_created: int
+    assumptions: list[str]
+    self_test: list[BuildQuestionResultResponse]
+
+
+class BuildRunResponse(BaseModel):
+    id: str
+    status: Literal["queued", "running", "passed", "failed"]
+    current_step: Literal[
+        "collect_assets",
+        "caption_images",
+        "index_embeddings",
+        "run_self_test",
+        "finalize",
+    ] | None = None
+    progress_pct: int
+    report: BuildReportResponse | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class BuildRunPatchRequest(BaseModel):
+    status: Literal["queued", "running", "passed", "failed"]
+    progress_pct: int = Field(ge=0, le=100)
+    current_step: Literal[
+        "collect_assets",
+        "caption_images",
+        "index_embeddings",
+        "run_self_test",
+        "finalize",
+    ] | None = None
+
+
+class AgentStatusResponse(BaseModel):
+    status: Literal["building", "live", "failed"]
+
+
+class ProductCardResponse(BaseModel):
+    id: str
+    image_url: str | None = None
+    name_he: str
+    name_en: str
+    price: float
+    currency: str
+
+
+class TestChatMessageResponse(BaseModel):
+    id: str
+    role: Literal["user", "assistant"]
+    text: str
+    created_at: datetime
+    cards: list[ProductCardResponse] | None = None
+
+
+class TestChatRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=4000)
+
+
+class TestChatResponse(BaseModel):
+    reply: TestChatMessageResponse

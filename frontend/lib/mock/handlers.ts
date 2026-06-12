@@ -226,4 +226,23 @@ export const mockApi = {
   async getTestChatHistory(): Promise<TestChatMessage[]> {
     return loadState().chat;
   },
+  async sendSetupAssistantMessage(text: string): Promise<TestChatResponse> {
+    const userMsg: TestChatMessage = {
+      id: randomId("msg"),
+      role: "user",
+      text,
+      createdAt: nowIso(),
+    };
+    const reply: TestChatMessage = {
+      id: randomId("msg"),
+      role: "assistant",
+      text: "I can help with onboarding steps: business info, products, WhatsApp connect, and build. What should we do next?",
+      createdAt: nowIso(),
+    };
+    updateState((prev) => ({ ...prev, chat: [...prev.chat, userMsg, reply] }));
+    return { reply };
+  },
+  async getSetupAssistantHistory(): Promise<TestChatMessage[]> {
+    return loadState().chat;
+  },
 };
