@@ -2,7 +2,7 @@
 name = "whatsbase-backend"
 version = "0.1.0"
 description = "WhatsApp AI Agent Builder Platform — backend (Builder agent + Conversation agent)"
-requires-python = ">=3.12"
+requires-python = ">=3.11"
 dependencies = [
     # web / async
     "fastapi>=0.115",
