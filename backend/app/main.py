@@ -26,7 +26,7 @@ configured_origins = [
 default_origins = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
-    "https://frontend-whats-base.vercel.app",
+    "https://whatsbase.vercel.app",
 ]
 allow_origins = sorted(set(default_origins + configured_origins))
 
