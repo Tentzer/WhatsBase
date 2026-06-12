@@ -4,7 +4,7 @@ dockerfilePath = "Dockerfile"
 
 [deploy]
 # Default API start command (worker service overrides this in Railway UI)
-startCommand = "alembic upgrade head || echo 'Migration failed — check DATABASE_URL'; exec uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+startCommand = "./scripts/start_api.sh"
 healthcheckPath = "/health/live"
 healthcheckTimeout = 60
 restartPolicyType = "ON_FAILURE"
