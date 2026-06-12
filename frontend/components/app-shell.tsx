@@ -52,6 +52,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <Link href="/test-chat" className={buttonVariants({ variant: "outline", size: "sm" })}>
               {t("Test Chat", "צ׳אט בדיקה")}
             </Link>
+            <FloatingChat />
             <Button type="button" size="sm" onClick={signOut}>
               {t("Sign out", "התנתקות")}
             </Button>
@@ -59,7 +60,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       </header>
       <main className="mx-auto max-w-6xl px-4 py-6">{children}</main>
-      <FloatingChat />
     </div>
   );
 }

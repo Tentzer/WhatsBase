@@ -17,8 +17,6 @@ const WELCOME: Message = {
   text: "Hi! I'm your WhatsBase setup assistant 👋\n\nI can walk you through building your WhatsApp bot — uploading products, connecting your number, and going live. What would you like help with?",
 };
 
-// ─── Placeholder reply logic ──────────────────────────────────────────────────
-// Replace this function with a real API call when the guide agent is ready.
 async function getReply(userText: string): Promise<string> {
   await new Promise((r) => setTimeout(r, 900));
   const t = userText.toLowerCase();
@@ -32,7 +30,6 @@ async function getReply(userText: string): Promise<string> {
     return "Hey there! 👋 Ask me anything about setting up your WhatsApp bot — I'm here to help.";
   return "I'm still learning, but a real AI assistant will be connected here soon to help you set up your WhatsBase bot. Try the onboarding wizard — it walks you through every step!";
 }
-// ─────────────────────────────────────────────────────────────────────────────
 
 export function FloatingChat() {
   const { dir } = useLocale();
@@ -45,6 +42,7 @@ export function FloatingChat() {
   const [hasUnread, setHasUnread] = useState(true);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -57,71 +55,66 @@ export function FloatingChat() {
     }
   }, [open]);
 
+  // Close on outside click
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
   const send = async () => {
     const text = input.trim();
     if (!text || sending) return;
     setInput("");
     setSending(true);
-    setMessages((prev) => [
-      ...prev,
-      { id: `u_${Date.now()}`, role: "user", text },
-    ]);
+    setMessages((prev) => [...prev, { id: `u_${Date.now()}`, role: "user", text }]);
     const replyText = await getReply(text);
-    setMessages((prev) => [
-      ...prev,
-      { id: `a_${Date.now()}`, role: "assistant", text: replyText },
-    ]);
+    setMessages((prev) => [...prev, { id: `a_${Date.now()}`, role: "assistant", text: replyText }]);
     setSending(false);
   };
 
   return (
     /*
-     * Root: fixed to the viewport, sitting just below the sticky header (top-20),
-     * on the inline-end edge — right in LTR, left in RTL.
-     * The panel opens below the toggle button, aligned to the same edge.
+     * Sits inline in the header flex row.
+     * The panel is absolutely positioned below, aligned to whichever
+     * edge matches the current language direction.
      */
-    <div
-      className={cn(
-        "fixed top-20 z-50 flex flex-col gap-2",
-        isRTL ? "left-4 items-start" : "right-4 items-end",
-      )}
-    >
-      {/* ── Toggle button ── */}
+    <div ref={wrapperRef} className="relative">
+      {/* Toggle button — styled like the other header buttons */}
       <button
         onClick={() => setOpen((v) => !v)}
         aria-label={open ? "Close assistant" : "Open assistant"}
         className={cn(
-          "relative flex h-12 w-12 items-center justify-center rounded-full bg-emerald-600 text-white shadow-lg shadow-emerald-700/30 transition-all hover:bg-emerald-700 hover:scale-105 active:scale-95",
-          open && "rotate-90",
+          "relative inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-sm font-semibold tracking-tight transition-colors",
+          open
+            ? "border-emerald-500 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-400"
+            : "border-border bg-background text-foreground hover:bg-muted dark:border-input dark:bg-input/30 dark:hover:bg-input/50",
         )}
       >
-        {open ? (
-          <X className="size-5" />
-        ) : (
-          <MessageCircle className="size-5" />
-        )}
+        <MessageCircle className="size-3.5" />
+        <span>Assistant</span>
 
         {/* Unread badge */}
         {hasUnread && !open && (
-          <span className="absolute right-0 top-0 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-red-500 text-[9px] font-bold text-white ring-2 ring-card">
+          <span className="absolute -right-1 -top-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-red-500 text-[9px] font-bold text-white ring-2 ring-card">
             1
           </span>
         )}
-
-        {/* Pulse ring */}
-        {!open && (
-          <span className="absolute inset-0 animate-ping rounded-full bg-emerald-500/30" />
-        )}
       </button>
 
-      {/* ── Chat panel — drops below the button, aligned to same edge ── */}
+      {/* Panel — drops down from the button, aligned to the language-correct edge */}
       <div
         className={cn(
-          "flex w-[320px] flex-col overflow-hidden rounded-2xl border bg-card shadow-2xl shadow-black/20 transition-all duration-300 dark:shadow-black/50",
-          isRTL ? "origin-top-left" : "origin-top-right",
+          "absolute top-full z-50 mt-2 flex w-[320px] flex-col overflow-hidden rounded-2xl border bg-card shadow-2xl shadow-black/20 transition-all duration-200 dark:shadow-black/50",
+          isRTL ? "left-0 origin-top-left" : "right-0 origin-top-right",
           open
-            ? "max-h-[480px] opacity-100 scale-100"
-            : "max-h-0 opacity-0 scale-95 pointer-events-none",
+            ? "opacity-100 scale-100 pointer-events-auto"
+            : "opacity-0 scale-95 pointer-events-none",
         )}
       >
         {/* Header */}
@@ -131,12 +124,8 @@ export function FloatingChat() {
               <Bot className="size-4 text-white" />
             </div>
             <div>
-              <p className="text-sm font-bold leading-none text-white">
-                WhatsBase Assistant
-              </p>
-              <p className="mt-0.5 text-[10px] text-emerald-200">
-                Setup guide · always here
-              </p>
+              <p className="text-sm font-bold leading-none text-white">WhatsBase Assistant</p>
+              <p className="mt-0.5 text-[10px] text-emerald-200">Setup guide · always here</p>
             </div>
           </div>
           <button
@@ -149,31 +138,20 @@ export function FloatingChat() {
         </div>
 
         {/* Messages */}
-        <div
-          className="flex-1 space-y-3 overflow-y-auto p-4"
-          style={{ maxHeight: 300 }}
-        >
+        <div className="space-y-3 overflow-y-auto p-4" style={{ maxHeight: 320 }}>
           {messages.map((msg) => (
-            <div
-              key={msg.id}
-              className={cn(
-                "flex gap-2",
-                msg.role === "user" ? "flex-row-reverse" : "flex-row",
-              )}
-            >
+            <div key={msg.id} className={cn("flex gap-2", msg.role === "user" ? "flex-row-reverse" : "flex-row")}>
               {msg.role === "assistant" && (
                 <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-950/60">
                   <Bot className="size-3.5 text-emerald-700 dark:text-emerald-400" />
                 </div>
               )}
-              <div
-                className={cn(
-                  "max-w-[80%] rounded-2xl px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap",
-                  msg.role === "user"
-                    ? "rounded-tr-sm bg-emerald-600 text-white"
-                    : "rounded-tl-sm bg-muted text-foreground",
-                )}
-              >
+              <div className={cn(
+                "max-w-[80%] rounded-2xl px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap",
+                msg.role === "user"
+                  ? "rounded-tr-sm bg-emerald-600 text-white"
+                  : "rounded-tl-sm bg-muted text-foreground",
+              )}>
                 {msg.text}
               </div>
             </div>
@@ -204,10 +182,7 @@ export function FloatingChat() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  void send();
-                }
+                if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); }
               }}
               placeholder="Ask me anything…"
               className="flex-1 rounded-xl border bg-background px-3 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/30"
