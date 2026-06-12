@@ -58,7 +58,7 @@ export function AuthForm({ mode }: AuthFormProps) {
   return (
     <div className="flex min-h-screen flex-col">
       {/* ── Top green band ── */}
-      <div className="relative overflow-hidden bg-gradient-to-br from-emerald-500 via-emerald-600 to-teal-700 px-6 pb-20 pt-10 text-center">
+      <div className="relative overflow-hidden bg-gradient-to-br from-emerald-500 via-emerald-600 to-teal-700 px-6 py-10 text-center">
         {/* Decorative glows */}
         <div className="absolute -top-20 left-1/2 h-64 w-64 -translate-x-1/2 rounded-full bg-white/10 blur-3xl" />
         <div className="absolute -bottom-10 -right-10 h-48 w-48 rounded-full bg-teal-400/20 blur-2xl" />
@@ -86,9 +86,9 @@ export function AuthForm({ mode }: AuthFormProps) {
         </div>
       </div>
 
-      {/* ── Form — pulled up to overlap the green band ── */}
-      <div className="flex flex-1 justify-center px-4">
-        <div className="-mt-10 w-full max-w-md">
+      {/* ── Form — centered in remaining space ── */}
+      <div className="flex flex-1 items-center justify-center px-4 py-10">
+        <div className="w-full max-w-md">
           <Card className="shadow-2xl shadow-emerald-900/10 dark:shadow-emerald-900/30">
             <CardContent className="p-8">
               {/* Heading */}
@@ -182,8 +182,6 @@ export function AuthForm({ mode }: AuthFormProps) {
         </div>
       </div>
 
-      {/* Bottom padding so the card doesn't hug the viewport edge */}
-      <div className="h-16" />
     </div>
   );
 }
