@@ -28,7 +28,8 @@ _settings = get_settings()
 def _connect_args(database_url: str) -> dict:
     """Supabase Postgres requires SSL from external hosts (e.g. Railway)."""
     if "supabase.co" in database_url:
-        return {"ssl": True}
+        # "require" avoids CERTIFICATE_VERIFY_FAILED with Supabase's cert chain.
+        return {"ssl": "require"}
     return {}
 
 

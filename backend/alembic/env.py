@@ -51,7 +51,7 @@ def do_run_migrations(connection) -> None:
 
 def _connect_args(url: str) -> dict:
     if "supabase.co" in url:
-        return {"ssl": True}
+        return {"ssl": "require"}
     return {}
 
 
