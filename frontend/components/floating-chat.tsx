@@ -18,6 +18,23 @@ const WELCOME: Message = {
   text: "Hi! I'm your WhatsBase setup assistant 👋\n\nI can walk you through building your WhatsApp bot — uploading products, connecting your number, and going live. What would you like help with?",
 };
 
+const MIN_W = 280;
+const MAX_W = 720;
+const MIN_H = 320;
+const MAX_H = 900;
+const DEFAULT_W = 320;
+const DEFAULT_H = 480;
+
+type ResizeEdge = "bottom" | "side" | "corner";
+
+interface ResizeState {
+  edge: ResizeEdge;
+  startX: number;
+  startY: number;
+  startW: number;
+  startH: number;
+}
+
 export function FloatingChat() {
   const { dir } = useLocale();
   const isRTL = dir === "rtl";
@@ -27,9 +44,12 @@ export function FloatingChat() {
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [hasUnread, setHasUnread] = useState(true);
+  const [panelSize, setPanelSize] = useState({ width: DEFAULT_W, height: DEFAULT_H });
+
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const resizeRef = useRef<ResizeState | null>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -50,9 +70,7 @@ export function FloatingChat() {
 
   useEffect(() => {
     if (open) {
-      const unreadTimer = window.setTimeout(() => {
-        setHasUnread(false);
-      }, 0);
+      const unreadTimer = window.setTimeout(() => setHasUnread(false), 0);
       setTimeout(() => inputRef.current?.focus(), 50);
       return () => window.clearTimeout(unreadTimer);
     }
@@ -69,6 +87,64 @@ export function FloatingChat() {
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [open]);
+
+  // Global mouse move/up for resize dragging
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!resizeRef.current) return;
+      const { edge, startX, startY, startW, startH } = resizeRef.current;
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+
+      setPanelSize((prev) => {
+        let w = prev.width;
+        let h = prev.height;
+        if (edge === "bottom" || edge === "corner") {
+          h = Math.max(MIN_H, Math.min(MAX_H, startH + dy));
+        }
+        if (edge === "side" || edge === "corner") {
+          // LTR: panel is right-aligned; dragging left edge leftward (dx < 0) grows width.
+          // RTL: panel is left-aligned; dragging right edge rightward (dx > 0) grows width.
+          const delta = isRTL ? dx : -dx;
+          w = Math.max(MIN_W, Math.min(MAX_W, startW + delta));
+        }
+        return { width: w, height: h };
+      });
+    };
+
+    const onUp = () => {
+      if (!resizeRef.current) return;
+      resizeRef.current = null;
+      document.body.style.userSelect = "";
+      document.body.style.cursor = "";
+    };
+
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, [isRTL]);
+
+  const startResize = (e: React.MouseEvent, edge: ResizeEdge) => {
+    e.preventDefault();
+    e.stopPropagation();
+    resizeRef.current = {
+      edge,
+      startX: e.clientX,
+      startY: e.clientY,
+      startW: panelSize.width,
+      startH: panelSize.height,
+    };
+    const cursorMap: Record<ResizeEdge, string> = {
+      bottom: "s-resize",
+      side: "ew-resize",
+      corner: isRTL ? "se-resize" : "sw-resize",
+    };
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = cursorMap[edge];
+  };
 
   const send = async () => {
     const text = input.trim();
@@ -124,15 +200,25 @@ export function FloatingChat() {
       {/* Panel — drops down from the button, aligned to the language-correct edge */}
       <div
         className={cn(
-          "absolute top-full z-50 mt-2 flex w-[320px] flex-col overflow-hidden rounded-2xl border bg-card shadow-2xl shadow-black/20 transition-all duration-200 dark:shadow-black/50",
+          "absolute top-full z-50 mt-2 flex flex-col overflow-hidden rounded-2xl border bg-card shadow-2xl shadow-black/20 transition-[opacity,transform] duration-200 dark:shadow-black/50",
           isRTL ? "left-0 origin-top-left" : "right-0 origin-top-right",
           open
             ? "opacity-100 scale-100 pointer-events-auto"
             : "opacity-0 scale-95 pointer-events-none",
         )}
+        style={{ width: panelSize.width, height: panelSize.height }}
       >
+        {/* Side resize handle (left in LTR, right in RTL) */}
+        <div
+          className={cn(
+            "absolute top-8 z-10 h-[calc(100%-2rem)] w-2 cursor-ew-resize transition-colors hover:bg-emerald-400/20",
+            isRTL ? "right-0" : "left-0",
+          )}
+          onMouseDown={(e) => startResize(e, "side")}
+        />
+
         {/* Header */}
-        <div className="flex items-center justify-between bg-emerald-600 px-4 py-3">
+        <div className="flex shrink-0 items-center justify-between bg-emerald-600 px-4 py-3">
           <div className="flex items-center gap-2.5">
             <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/20">
               <Bot className="size-4 text-white" />
@@ -152,7 +238,7 @@ export function FloatingChat() {
         </div>
 
         {/* Messages */}
-        <div className="space-y-3 overflow-y-auto p-4" style={{ maxHeight: 320 }}>
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
           {messages.map((msg) => (
             <div key={msg.id} className={cn("flex gap-2", msg.role === "user" ? "flex-row-reverse" : "flex-row")}>
               {msg.role === "assistant" && (
@@ -189,7 +275,7 @@ export function FloatingChat() {
         </div>
 
         {/* Input */}
-        <div className="border-t p-3">
+        <div className="shrink-0 border-t p-3">
           <div className="flex items-center gap-2">
             <input
               ref={inputRef}
@@ -211,6 +297,27 @@ export function FloatingChat() {
               <Send className="size-3.5" />
             </button>
           </div>
+        </div>
+
+        {/* Bottom resize handle */}
+        <div
+          className="absolute bottom-0 left-2 right-2 z-10 h-2 cursor-s-resize transition-colors hover:bg-emerald-400/20"
+          onMouseDown={(e) => startResize(e, "bottom")}
+        />
+
+        {/* Corner resize handle (bottom-left in LTR, bottom-right in RTL) */}
+        <div
+          className={cn(
+            "absolute bottom-0 z-20 flex h-5 w-5 items-end justify-center pb-0.5",
+            isRTL
+              ? "right-0 cursor-se-resize"
+              : "left-0 cursor-sw-resize",
+          )}
+          onMouseDown={(e) => startResize(e, "corner")}
+        >
+          <svg width="10" height="10" viewBox="0 0 10 10" className="text-muted-foreground/40">
+            <path d="M0 10 L10 0 M4 10 L10 4 M8 10 L10 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+          </svg>
         </div>
       </div>
     </div>
