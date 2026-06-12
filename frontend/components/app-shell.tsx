@@ -21,7 +21,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <div className="min-h-screen text-foreground">
       <header className="sticky top-0 z-40 border-b bg-card/80 backdrop-blur-md">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
-          <Link href="/" className="text-lg font-semibold text-emerald-700">
+          <Link href="/" className="text-xl font-extrabold tracking-tight text-emerald-700">
             WhatsBase
           </Link>
           <div className="flex items-center gap-2">

@@ -49,6 +49,9 @@
 }
 
 :root {
+  /* Wire the Next.js font variable into Tailwind's font-sans token */
+  --font-sans: var(--font-plus-jakarta-sans);
+
   /* Slightly green-tinted white — barely visible, just enough warmth */
   --background: oklch(0.984 0.006 155);
   --foreground: oklch(0.145 0 0);

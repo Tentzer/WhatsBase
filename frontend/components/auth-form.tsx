@@ -53,7 +53,7 @@ export function AuthForm({ mode }: AuthFormProps) {
     <div className="flex min-h-screen flex-col items-center justify-center px-4 py-12">
       {/* Brand mark */}
       <div className="mb-8 flex flex-col items-center gap-2">
-        <Link href="/" className="text-2xl font-bold tracking-tight text-emerald-700">
+        <Link href="/" className="text-3xl font-extrabold tracking-tight text-emerald-700">
           WhatsBase
         </Link>
         <p className="text-sm text-muted-foreground">

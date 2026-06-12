@@ -19,7 +19,7 @@ export default async function Home() {
       {/* ── Nav ── */}
       <header className="sticky top-0 z-40 border-b border-border/50 bg-card/70 backdrop-blur-md">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3">
-          <span className="text-lg font-bold tracking-tight text-emerald-700">
+          <span className="text-xl font-extrabold tracking-tight text-emerald-700">
             WhatsBase
           </span>
           <div className="flex items-center gap-2">
@@ -54,7 +54,7 @@ export default async function Home() {
             Now in beta
           </span>
 
-          <h1 className="text-4xl font-bold tracking-tight text-foreground sm:text-5xl lg:text-6xl">
+          <h1 className="text-4xl font-extrabold tracking-tighter text-foreground sm:text-5xl lg:text-6xl">
             Build a WhatsApp{" "}
             <span className="bg-gradient-to-r from-emerald-600 to-teal-500 bg-clip-text text-transparent">
               sales agent
