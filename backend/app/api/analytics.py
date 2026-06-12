@@ -189,7 +189,7 @@ async def get_langfuse_analytics(
             "dimensions": [{"field": "name"}],
             "fromTimestamp": thirty_days_ago.isoformat(),
             "toTimestamp": now.isoformat(),
-            "orderBy": [{"field": "latency_p95", "direction": "desc"}],
+            "orderBy": [{"field": "p95_latency", "direction": "desc"}],
             "config": {"row_limit": 10},
         }
     )
@@ -221,8 +221,8 @@ async def get_langfuse_analytics(
     latency_by_name = [
         LangfuseLatencyRow(
             name=str(row.get("name") or ""),
-            p50_ms=_to_float(row.get("latency_p50")),
-            p95_ms=_to_float(row.get("latency_p95")),
+            p50_ms=_to_float(row.get("p50_latency")),
+            p95_ms=_to_float(row.get("p95_latency")),
             calls=_to_int(row.get("count_count", row.get("count_countObservations", 0))),
         )
         for row in latency_rows
