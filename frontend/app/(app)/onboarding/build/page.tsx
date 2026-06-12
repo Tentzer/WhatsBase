@@ -144,14 +144,24 @@ export default function BuildPage() {
             </Card>
           ) : null}
 
-          <Button
-            type="button"
-            variant="outline"
-            disabled={run?.status !== "passed"}
-            onClick={() => router.push("/test-chat")}
-          >
-            {t("Open test chat", "פתיחת צ׳אט בדיקה")}
-          </Button>
+          <div className="flex flex-wrap gap-3">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={run?.status !== "passed"}
+              onClick={() => router.push("/test-chat")}
+            >
+              {t("Open test chat", "פתיחת צ׳אט בדיקה")}
+            </Button>
+            <Button
+              type="button"
+              className="bg-emerald-600 hover:bg-emerald-700"
+              disabled={run?.status !== "passed"}
+              onClick={() => router.push("/onboarding/whatsapp")}
+            >
+              {t("Continue → Connect WhatsApp", "המשך → חיבור וואטסאפ")}
+            </Button>
+          </div>
         </CardContent>
       </Card>
     </div>

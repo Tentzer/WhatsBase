@@ -9,8 +9,8 @@ import { useLocale } from "@/lib/locale";
 const steps = [
   { href: "/onboarding/business", en: "Business", he: "עסק" },
   { href: "/onboarding/products", en: "Products", he: "מוצרים" },
-  { href: "/onboarding/whatsapp", en: "WhatsApp", he: "וואטסאפ" },
   { href: "/onboarding/build", en: "Build", he: "בנייה" },
+  { href: "/onboarding/whatsapp", en: "WhatsApp", he: "וואטסאפ" },
 ];
 
 export function WizardStepper() {

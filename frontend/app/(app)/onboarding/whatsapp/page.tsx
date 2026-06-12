@@ -95,7 +95,7 @@ export default function WhatsAppOnboardingPage() {
             disabled={!whatsapp?.connected}
             onClick={() => router.push("/onboarding/build")}
           >
-            {t("Continue to build", "המשך לבנייה")}
+            {t("Rebuild to go live", "בנייה מחדש לפרסום")}
           </Button>
         </CardContent>
       </Card>
