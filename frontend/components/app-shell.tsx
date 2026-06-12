@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Moon, Sun } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { FloatingChat } from "@/components/floating-chat";
 import { useLocale } from "@/lib/locale";
 import { createClient } from "@/lib/supabase/client";
 
@@ -58,6 +59,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       </header>
       <main className="mx-auto max-w-6xl px-4 py-6">{children}</main>
+      <FloatingChat />
     </div>
   );
 }
