@@ -1,0 +1,10 @@
+# Demo furniture business — context the Builder agent ingests as business_info.
+# Format: TOPIC | HE | EN   (one record per line, topics: hours|location|policy|faq|other)
+
+hours | שעות פתיחה: ראשון עד חמישי 09:00-19:00, שישי 09:00-14:00, שבת סגור. | Opening hours: Sun-Thu 09:00-19:00, Fri 09:00-14:00, closed Saturday.
+location | החנות ממוקמת ברחוב הרצל 42, תל אביב. חניה חופשית בחזית. | We are located at 42 Herzl St, Tel Aviv. Free parking out front.
+policy | משלוח חינם בקנייה מעל 1500 ש"ח. החזרות עד 14 יום עם קבלה. | Free delivery on orders over 1500 ILS. Returns within 14 days with receipt.
+policy | הרכבת רהיטים זמינה בתוספת תשלום של 150 ש"ח. | Furniture assembly available for an extra 150 ILS.
+faq | האם ניתן להזמין בהזמנה אישית? כן, רוב הספות זמינות בבדים וצבעים לבחירה. | Do you offer custom orders? Yes, most sofas come in a choice of fabrics and colors.
+faq | כמה זמן לוקח משלוח? בדרך כלל 3-7 ימי עסקים בתוך אזור המרכז. | How long is delivery? Usually 3-7 business days in the central region.
+other | אנחנו עסק משפחתי שפועל כבר 15 שנה ומתמחים ברהיטי סלון וחדר שינה. | We are a family business of 15 years specializing in living-room and bedroom furniture.

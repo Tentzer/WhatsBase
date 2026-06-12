@@ -1,0 +1,114 @@
+export type Locale = "en" | "he";
+
+export type BuildStep =
+  | "collect_assets"
+  | "caption_images"
+  | "index_embeddings"
+  | "run_self_test"
+  | "finalize";
+
+export type BuildStatus = "queued" | "running" | "passed" | "failed";
+export type AgentStatus = "building" | "live" | "failed";
+
+export interface Tenant {
+  id: string;
+  name: string;
+  description?: string;
+  createdAt: string;
+}
+
+export interface UserProfile {
+  userId: string;
+  email: string;
+  tenantId?: string;
+}
+
+export interface MeResponse {
+  user: UserProfile;
+  tenant?: Tenant;
+}
+
+export interface BusinessInfoBlock {
+  topic: "hours" | "location" | "policy" | "faq" | "other";
+  content_he: string;
+  content_en: string;
+}
+
+export interface ProductImageDraft {
+  id: string;
+  fileName: string;
+  previewUrl: string;
+  storagePath: string;
+  relativePath?: string;
+}
+
+export interface ProductDraft {
+  id: string;
+  stableKey: string;
+  nameHe: string;
+  nameEn: string;
+  category: string;
+  price: number;
+  currency: "ILS";
+  inStock: boolean;
+  colors: string;
+  materials: string;
+  style: string;
+  image?: ProductImageDraft;
+}
+
+export interface WhatsAppConnectRequest {
+  instanceId: string;
+  token: string;
+}
+
+export interface WhatsAppConnection {
+  connected: boolean;
+  phone?: string;
+  intakeMode: "polling" | "webhook";
+  checkedAt?: string;
+}
+
+export interface BuildQuestionResult {
+  question: string;
+  answerSummary: string;
+  passed: boolean;
+}
+
+export interface BuildReport {
+  productsDetected: number;
+  productsCreated: number;
+  assumptions: string[];
+  selfTest: BuildQuestionResult[];
+}
+
+export interface BuildRun {
+  id: string;
+  status: BuildStatus;
+  currentStep?: BuildStep;
+  progressPct: number;
+  report?: BuildReport;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProductCard {
+  id: string;
+  imageUrl?: string;
+  nameHe: string;
+  nameEn: string;
+  price: number;
+  currency: string;
+}
+
+export interface TestChatMessage {
+  id: string;
+  role: "user" | "assistant";
+  text: string;
+  createdAt: string;
+  cards?: ProductCard[];
+}
+
+export interface TestChatResponse {
+  reply: TestChatMessage;
+}

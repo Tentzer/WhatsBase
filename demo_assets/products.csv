@@ -1,0 +1,11 @@
+stable_key,name_he,name_en,category,price,currency,in_stock,colors,materials,style,image
+sofa-white-3seat,ספה לבנה תלת מושבית,White 3-Seater Sofa,sofa,3990,ILS,true,white,fabric,modern,sofa-white-3seat.jpg
+sofa-gray-2seat,ספה אפורה דו מושבית,Gray 2-Seater Sofa,sofa,2890,ILS,true,gray,fabric,scandinavian,sofa-gray-2seat.jpg
+armchair-leather-brown,כורסת עור חומה,Brown Leather Armchair,armchair,2490,ILS,true,brown,leather,classic,armchair-leather-brown.jpg
+coffee-table-oak,שולחן קפה עץ אלון,Oak Coffee Table,table,1290,ILS,true,natural,oak wood,rustic,coffee-table-oak.jpg
+dining-table-walnut,שולחן אוכל אגוז,Walnut Dining Table,table,4590,ILS,true,dark brown,walnut wood,modern,dining-table-walnut.jpg
+dining-chair-black,כיסא אוכל שחור,Black Dining Chair,chair,390,ILS,true,black,metal and wood,industrial,dining-chair-black.jpg
+bookshelf-white,כוננית ספרים לבנה,White Bookshelf,storage,890,ILS,true,white,engineered wood,minimal,bookshelf-white.jpg
+bed-frame-queen-gray,מיטה זוגית אפורה,Queen Gray Bed Frame,bed,3290,ILS,false,gray,fabric,modern,bed-frame-queen-gray.jpg
+nightstand-oak,שידת לילה אלון,Oak Nightstand,storage,690,ILS,true,natural,oak wood,scandinavian,nightstand-oak.jpg
+floor-lamp-brass,מנורת רצפה פליז,Brass Floor Lamp,lighting,790,ILS,true,gold,brass and linen,vintage,floor-lamp-brass.jpg

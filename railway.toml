@@ -1,0 +1,12 @@
+[build]
+builder = "NIXPACKS"
+# Install from pyproject.toml so all pinned deps are used
+buildCommand = "cd backend && pip install -e ."
+
+[deploy]
+# Run DB migrations then start the API server
+startCommand = "cd backend && alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+healthcheckPath = "/health"
+healthcheckTimeout = 30
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
