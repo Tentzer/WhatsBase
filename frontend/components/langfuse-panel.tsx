@@ -10,6 +10,7 @@ const EMPTY_STATE: LangfuseAnalytics = {
   totalCostThisMonthUsd: 0,
   costByModel: [],
   dailyUsageLast7Days: [],
+  latencyByName: [],
 };
 
 const CURRENCY = new Intl.NumberFormat("en-US", {
@@ -18,6 +19,12 @@ const CURRENCY = new Intl.NumberFormat("en-US", {
   minimumFractionDigits: 2,
   maximumFractionDigits: 4,
 });
+
+function formatMs(ms: number): string {
+  if (ms <= 0) return "—";
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
+}
 
 export function LangfusePanel({ isOpen }: { isOpen: boolean }) {
   const [loading, setLoading] = useState(false);
@@ -135,6 +142,34 @@ export function LangfusePanel({ isOpen }: { isOpen: boolean }) {
               })}
             </CardContent>
           </Card>
+
+          {state.latencyByName.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Latency by trace (last 30 days)</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Trace name</TableHead>
+                      <TableHead className="text-right">p50</TableHead>
+                      <TableHead className="text-right">p95</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {state.latencyByName.map((row) => (
+                      <TableRow key={row.name}>
+                        <TableCell className="max-w-40 truncate font-mono text-xs">{row.name}</TableCell>
+                        <TableCell className="text-right text-xs">{formatMs(row.p50Ms)}</TableCell>
+                        <TableCell className="text-right text-xs">{formatMs(row.p95Ms)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          )}
         </div>
       )}
     </div>

@@ -94,10 +94,18 @@ class LangfuseDailyUsageRow(BaseModel):
     calls: int
 
 
+class LangfuseLatencyRow(BaseModel):
+    name: str
+    p50_ms: float
+    p95_ms: float
+    calls: int
+
+
 class LangfuseAnalyticsResponse(BaseModel):
     total_cost_this_month_usd: float
     cost_by_model: list[LangfuseModelCostRow]
     daily_usage_last_7_days: list[LangfuseDailyUsageRow]
+    latency_by_name: list[LangfuseLatencyRow]
 
 
 class BuildQuestionResultResponse(BaseModel):

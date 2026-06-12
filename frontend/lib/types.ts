@@ -124,8 +124,16 @@ export interface LangfuseDailyUsage {
   calls: number;
 }
 
+export interface LangfuseLatency {
+  name: string;
+  p50Ms: number;
+  p95Ms: number;
+  calls: number;
+}
+
 export interface LangfuseAnalytics {
   totalCostThisMonthUsd: number;
   costByModel: LangfuseModelCost[];
   dailyUsageLast7Days: LangfuseDailyUsage[];
+  latencyByName: LangfuseLatency[];
 }

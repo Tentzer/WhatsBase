@@ -14,6 +14,7 @@ from app.api.deps import AuthContext, get_auth_context, require_tenant
 from app.api.schemas import (
     LangfuseAnalyticsResponse,
     LangfuseDailyUsageRow,
+    LangfuseLatencyRow,
     LangfuseModelCostRow,
 )
 from app.core.config import get_settings
@@ -177,6 +178,21 @@ async def get_langfuse_analytics(
             "config": {"row_limit": 7},
         }
     )
+    latency_raw = _post_metrics(
+        {
+            "view": "observations",
+            "metrics": [
+                {"measure": "latency", "aggregation": "p50"},
+                {"measure": "latency", "aggregation": "p95"},
+                {"measure": "count", "aggregation": "count"},
+            ],
+            "dimensions": [{"field": "name"}],
+            "fromTimestamp": thirty_days_ago.isoformat(),
+            "toTimestamp": now.isoformat(),
+            "orderBy": [{"field": "latency_p95", "direction": "desc"}],
+            "config": {"row_limit": 10},
+        }
+    )
 
     monthly_rows = _extract_rows(monthly_total_raw)
     total_cost = 0.0
@@ -186,19 +202,36 @@ async def get_langfuse_analytics(
     model_rows = _extract_rows(cost_by_model_raw)
     cost_by_model = [
         LangfuseModelCostRow(
-            model_name=str(row.get("providedModelName") or "Unknown"),
+            model_name=str(row["providedModelName"]),
             calls=_to_int(row.get("count_count", row.get("count_countObservations", 0))),
             total_cost_usd=_to_float(row.get("sum_totalCost")),
         )
         for row in model_rows
+        # Skip wrapper/span observations that have no model name — these are
+        # @observe-decorated functions (not LLM generations) and always show
+        # $0.00 cost, polluting the table as "Unknown".
+        if row.get("providedModelName")
     ]
     cost_by_model.sort(key=lambda row: row.total_cost_usd, reverse=True)
 
     daily_rows = _extract_rows(daily_usage_raw)
     daily_usage = _build_daily_usage(daily_rows, now)
 
+    latency_rows = _extract_rows(latency_raw)
+    latency_by_name = [
+        LangfuseLatencyRow(
+            name=str(row.get("name") or ""),
+            p50_ms=_to_float(row.get("latency_p50")),
+            p95_ms=_to_float(row.get("latency_p95")),
+            calls=_to_int(row.get("count_count", row.get("count_countObservations", 0))),
+        )
+        for row in latency_rows
+        if row.get("name")
+    ]
+
     return LangfuseAnalyticsResponse(
         total_cost_this_month_usd=total_cost,
         cost_by_model=cost_by_model,
         daily_usage_last_7_days=daily_usage,
+        latency_by_name=latency_by_name,
     )
