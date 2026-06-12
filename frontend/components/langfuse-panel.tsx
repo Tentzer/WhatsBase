@@ -55,7 +55,7 @@ export function LangfusePanel({ isOpen }: { isOpen: boolean }) {
   }, [state.dailyUsageLast7Days]);
 
   return (
-    <div className="absolute top-full right-0 z-50 mt-2 w-[26rem] origin-top-right rounded-2xl border bg-card p-3 shadow-2xl shadow-black/20 dark:shadow-black/50">
+    <div className="absolute top-full right-0 z-50 mt-2 w-[32rem] origin-top-right rounded-2xl border bg-card p-3 shadow-2xl shadow-black/20 dark:shadow-black/50">
       {loading ? (
         <div className="space-y-3">
           <div className="h-28 animate-pulse rounded-xl bg-muted/70" />
@@ -145,28 +145,30 @@ export function LangfusePanel({ isOpen }: { isOpen: boolean }) {
 
           {state.latencyByName.length > 0 && (
             <Card>
-              <CardHeader>
+              <CardHeader className="pb-2">
                 <CardTitle>Latency by trace (last 30 days)</CardTitle>
               </CardHeader>
-              <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Trace name</TableHead>
-                      <TableHead className="text-right">p50</TableHead>
-                      <TableHead className="text-right">p95</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {state.latencyByName.map((row) => (
-                      <TableRow key={row.name}>
-                        <TableCell className="max-w-40 truncate font-mono text-xs">{row.name}</TableCell>
-                        <TableCell className="text-right text-xs">{formatMs(row.p50Ms)}</TableCell>
-                        <TableCell className="text-right text-xs">{formatMs(row.p95Ms)}</TableCell>
+              <CardContent className="p-0">
+                <div className="max-h-48 overflow-y-auto">
+                  <Table>
+                    <TableHeader className="sticky top-0 bg-card">
+                      <TableRow>
+                        <TableHead className="pl-4">Trace name</TableHead>
+                        <TableHead className="text-right w-16">p50</TableHead>
+                        <TableHead className="text-right w-16 pr-4">p95</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {state.latencyByName.map((row) => (
+                        <TableRow key={row.name}>
+                          <TableCell className="pl-4 font-mono text-xs truncate max-w-0 w-full">{row.name}</TableCell>
+                          <TableCell className="text-right text-xs w-16">{formatMs(row.p50Ms)}</TableCell>
+                          <TableCell className="text-right text-xs w-16 pr-4">{formatMs(row.p95Ms)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
               </CardContent>
             </Card>
           )}
