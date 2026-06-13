@@ -15,7 +15,8 @@ from app.intake.tasks import _is_allowed, _parse_allowlist, process_incoming_mes
 class FakeRedis:
     def __init__(self):
         self._store: dict[str, str] = {}
-        self.enqueued: list[tuple[str, dict]] = []
+        self._lists: dict[str, list] = {}
+        self.enqueued: list[tuple] = []
 
     async def set(self, key, value, nx=False, ex=None):
         if nx and key in self._store:
@@ -23,8 +24,19 @@ class FakeRedis:
         self._store[key] = value
         return True
 
-    async def enqueue_job(self, name, payload):
-        self.enqueued.append((name, payload))
+    async def rpush(self, key, value):
+        self._lists.setdefault(key, []).append(value)
+        return len(self._lists[key])
+
+    async def incr(self, key):
+        self._store[key] = int(self._store.get(key, 0)) + 1
+        return self._store[key]
+
+    async def expire(self, key, ttl):
+        return True
+
+    async def enqueue_job(self, name, *args, **kwargs):
+        self.enqueued.append((name, args, kwargs))
 
 
 def _payload(chat_id: str, message_id: str = "MSG_A") -> dict:
@@ -80,8 +92,10 @@ async def test_allowed_sender_is_enqueued(monkeypatch):
     redis = FakeRedis()
     await process_incoming_message({"redis": redis}, _payload("972545495209@c.us"))
 
+    # New debounce contract: an allowed message schedules one run_agent_turn
+    # (the burst consumer), not a synchronous echo.
     assert len(redis.enqueued) == 1
-    assert redis.enqueued[0][0] == "send_outgoing"
+    assert redis.enqueued[0][0] == "run_agent_turn"
 
     get_settings.cache_clear()
 

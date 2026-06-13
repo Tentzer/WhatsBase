@@ -13,6 +13,7 @@ class FakeRedis:
 
     def __init__(self):
         self._store: dict[str, str] = {}
+        self._lists: dict[str, list] = {}
 
     async def set(self, key: str, value: str, nx: bool = False, ex: int | None = None) -> bool | None:
         if nx and key in self._store:
@@ -20,7 +21,18 @@ class FakeRedis:
         self._store[key] = value
         return True
 
-    async def enqueue_job(self, name: str, payload: dict) -> None:
+    async def rpush(self, key, value):
+        self._lists.setdefault(key, []).append(value)
+        return len(self._lists[key])
+
+    async def incr(self, key):
+        self._store[key] = int(self._store.get(key, 0)) + 1
+        return self._store[key]
+
+    async def expire(self, key, ttl):
+        return True
+
+    async def enqueue_job(self, name: str, *args, **kwargs) -> None:
         pass  # no-op
 
 

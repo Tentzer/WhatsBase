@@ -10,7 +10,6 @@ __pycache__/
 .venv/
 venv/
 .pytest_cache/
-*.egg-info/
 
 # Node
 node_modules/
@@ -25,3 +24,4 @@ Thumbs.db
 # Logs / runtime
 *.log
 *.tmp
+backend/whatsbase_backend.egg-info/

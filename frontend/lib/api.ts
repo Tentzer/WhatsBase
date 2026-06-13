@@ -74,11 +74,13 @@ async function requestJson<T>(
   init?: {
     method?: "GET" | "POST" | "PATCH";
     body?: unknown;
+    timeoutMs?: number;
   },
 ): Promise<T> {
   const { token, userId, email } = await getSessionContext();
+  const timeoutMs = init?.timeoutMs ?? 15000;
   const abortController = new AbortController();
-  const timeout = setTimeout(() => abortController.abort(), 15000);
+  const timeout = setTimeout(() => abortController.abort(), timeoutMs);
   let response: Response;
   try {
     response = await fetch(toBackendUrl(path), {
@@ -99,7 +101,7 @@ async function requestJson<T>(
     const isTimeout = err instanceof DOMException && err.name === "AbortError";
     throw new Error(
       isTimeout
-        ? `API ${path} timed out after 15 s — check backend URL and tunnel`
+        ? `API ${path} timed out after ${Math.round(timeoutMs / 1000)} s — check backend URL and tunnel`
         : `API ${path} network error — backend unreachable: ${String(err)}`,
     );
   } finally {
@@ -498,6 +500,9 @@ const realApi: ApiClient = {
     }>("/api/test-chat", {
       method: "POST",
       body: { text },
+      // Agentic turns make several sequential model round-trips (search →
+      // optional cards → reply), so allow more time than other endpoints.
+      timeoutMs: 60000,
     });
     return {
       reply: {

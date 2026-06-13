@@ -20,6 +20,12 @@ const timeline = [
   { step: "finalize", progress: 100 },
 ] as const;
 
+// Mock mode simulates build progress in the browser; against the real backend
+// the worker drives the build and we poll the build-run row for status.
+const useMockApi = process.env.NEXT_PUBLIC_USE_MOCK_API !== "false";
+const POLL_INTERVAL_MS = 2000;
+const POLL_TIMEOUT_MS = 180_000;
+
 export default function BuildPage() {
   const navigate = useNavigate();
   const { t } = useLocale();
@@ -28,15 +34,37 @@ export default function BuildPage() {
 
   const startBuild = async () => {
     setRunning(true);
-    const started = await api.startBuild();
-    setRun(started);
-    for (const point of timeline) {
-      await new Promise((resolve) => setTimeout(resolve, 3500));
-      const status = point.progress === 100 ? "passed" : "running";
-      const updated = await api.setBuildState(status, point.progress, point.step);
-      if (updated) setRun(updated);
+    try {
+      const started = await api.startBuild();
+      setRun(started);
+
+      if (useMockApi) {
+        // Mock: simulate the builder advancing through its steps.
+        for (const point of timeline) {
+          await new Promise((resolve) => setTimeout(resolve, 3500));
+          const status = point.progress === 100 ? "passed" : "running";
+          const updated = await api.setBuildState(status, point.progress, point.step);
+          if (updated) setRun(updated);
+        }
+        return;
+      }
+
+      // Real backend: the worker runs the build; poll the build-run until terminal.
+      const deadline = Date.now() + POLL_TIMEOUT_MS;
+      let current: BuildRun | undefined = started;
+      while (
+        current &&
+        current.status !== "passed" &&
+        current.status !== "failed" &&
+        Date.now() < deadline
+      ) {
+        await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+        current = await api.getBuildRun(started.id);
+        if (current) setRun(current);
+      }
+    } finally {
+      setRunning(false);
     }
-    setRunning(false);
   };
 
   const stepLabel = useMemo(() => {

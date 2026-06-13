@@ -24,11 +24,11 @@ from app.api.schemas import (
 )
 from app.core.db import get_session
 from app.core.models import get_model
-from app.core.observability import observe, update_trace
+from app.core.observability import observe
 from app.core.schema import Agent, BuildRun, Conversation, Message
 from app.intake.queue import get_redis_pool
-from app.retrieval.search import search as retrieval_search
-from app.retrieval.types import ProductHit
+from app.runtime.context import TurnContext
+from app.runtime.conversation import run_turn
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["agent-runtime"])
@@ -271,37 +271,6 @@ def _detect_hebrew(text: str) -> bool:
     return bool(re.search(r"[\u0590-\u05FF]", text))
 
 
-def _format_catalog_context(hits: list[ProductHit]) -> str:
-    if not hits:
-        return "(no matching products found)"
-    lines: list[str] = []
-    for hit in hits:
-        title = hit.name_en or hit.name_he or "Unknown product"
-        price = f"{float(hit.price)} {hit.currency}" if hit.price is not None else "price unknown"
-        stock = "in_stock" if hit.in_stock else "out_of_stock"
-        image = hit.image_urls[0] if hit.image_urls else ""
-        lines.append(
-            f"- id={hit.product_id}; title={title}; category={hit.category or ''}; "
-            f"price={price}; stock={stock}; image={image}"
-        )
-    return "\n".join(lines)
-
-
-def _build_cards_from_hits(hits: list[ProductHit]) -> list[ProductCardResponse] | None:
-    cards = [
-        ProductCardResponse(
-            id=hit.product_id,
-            image_url=hit.image_urls[0] if hit.image_urls else None,
-            name_he=hit.name_he or "",
-            name_en=hit.name_en or "",
-            price=float(hit.price or 0),
-            currency=hit.currency,
-        )
-        for hit in hits[:3]
-    ]
-    return cards or None
-
-
 @observe(name="api.test_chat.reply")
 async def _generate_agent_reply(
     *,
@@ -309,48 +278,37 @@ async def _generate_agent_reply(
     system_prompt: str,
     user_text: str,
     recent_messages: list[Message],
+    conversation_id: str | None = None,
 ) -> tuple[str, list[ProductCardResponse] | None]:
-    update_trace(tenant_id=tenant_id)
-    hits = await retrieval_search(tenant_id=tenant_id, query=user_text, k=3)
-    cards = _build_cards_from_hits(hits)
+    """Delegate to the shared conversation runtime (the native tool-use loop).
 
-    model_cfg = get_model("conversation")
-    conversation_system = system_prompt
-    guardrail = (
-        "You are answering in the tenant owner's TEST CHAT. "
-        "Use only the provided catalog context for prices/stock. "
-        "If information is missing, say you do not know and suggest asking a human."
+    Cards are whatever the agent chose to show via send_product_cards this turn
+    (no callable is injected, so nothing is sent to WhatsApp from the test chat).
+    """
+    ctx = TurnContext(
+        tenant_id=tenant_id,
+        conversation_id=conversation_id,
+        channel="test_chat",
     )
-
-    formatted_history: list[dict] = []
-    for row in recent_messages[-12:]:
-        role = "user" if row.direction == "inbound" else "assistant"
-        formatted_history.append({"role": role, "content": row.content or ""})
-    formatted_history.append({"role": "user", "content": user_text})
-
-    def _call():
-        client = _get_anthropic_client()
-        return client.messages.create(
-            model=model_cfg.name,
-            max_tokens=model_cfg.max_tokens or 1024,
-            temperature=model_cfg.temperature or 0.2,
-            system=f"{conversation_system}\n\n{guardrail}\n\nCatalog context:\n{_format_catalog_context(hits)}",
-            messages=formatted_history,
+    result = await run_turn(
+        tenant_id=tenant_id,
+        system_prompt=system_prompt,
+        history=recent_messages,
+        user_text=user_text,
+        ctx=ctx,
+    )
+    cards = [
+        ProductCardResponse(
+            id=card.id,
+            image_url=card.image_url,
+            name_he=card.name_he,
+            name_en=card.name_en,
+            price=card.price,
+            currency=card.currency,
         )
-
-    response = await asyncio.to_thread(_call)
-    chunks: list[str] = []
-    for block in response.content:
-        if getattr(block, "type", None) == "text" and getattr(block, "text", None):
-            chunks.append(block.text)
-    reply_text = "\n".join(chunks).strip()
-    if not reply_text:
-        reply_text = (
-            "אני לא בטוח לגבי התשובה כרגע. אפשר לנסות לנסח את השאלה אחרת?"
-            if _detect_hebrew(user_text)
-            else "I am not fully sure yet. Can you rephrase the question?"
-        )
-    return reply_text, cards
+        for card in result.cards
+    ] or None
+    return result.reply_text, cards
 
 
 @observe(name="api.setup_assistant.reply")
@@ -545,6 +503,7 @@ async def send_test_chat_message(
         system_prompt=system_prompt,
         user_text=clean_text,
         recent_messages=history_rows,
+        conversation_id=conversation.id,
     )
 
     assistant_msg = Message(

@@ -11,7 +11,13 @@ export async function createClient() {
         return cookieStore.getAll();
       },
       setAll(cookiesToSet) {
-        cookiesToSet.forEach(({ name, value, options }) => cookieStore.set(name, value, options));
+        try {
+          cookiesToSet.forEach(({ name, value, options }) => cookieStore.set(name, value, options));
+        } catch {
+          // Called from a Server Component, where cookies are read-only. Safe to
+          // ignore: the session is refreshed (and cookies written) in proxy.ts
+          // via lib/supabase/middleware.ts updateSession on every matched request.
+        }
       },
     },
   });
