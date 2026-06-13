@@ -37,11 +37,12 @@ async def main() -> None:
         instances = result.scalars().all()
 
     if not instances:
-        logger.error(
-            "No polling-mode WhatsApp instances found in whatsapp_instances table. "
-            "Run scripts/seed_instance.py first."
+        logger.warning(
+            "No polling-mode WhatsApp instances yet — waiting. "
+            "Connect WhatsApp in the app (INTAKE_MODE=polling)."
         )
-        return
+        while True:
+            await asyncio.sleep(30)
 
     logger.info("Found %d polling instance(s)", len(instances))
     redis = await get_redis_pool()

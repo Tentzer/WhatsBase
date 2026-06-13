@@ -1,0 +1,9 @@
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+startCommand = "python -m app.poller"
+# No healthcheck — poller is not a web server (unlike the API service).
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
