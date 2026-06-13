@@ -23,7 +23,6 @@ from app.api.schemas import (
     TestChatResponse,
 )
 from app.core.db import get_session
-from app.core.config import get_settings
 from app.core.models import get_model
 from app.core.observability import observe
 from app.core.schema import Agent, BuildRun, Conversation, Message
@@ -382,7 +381,6 @@ async def start_build(
             await redis.enqueue_job(
                 "run_build",
                 {"tenant_id": tenant_id, "build_run_id": build_run.id},
-                _job_timeout=get_settings().build_job_timeout_seconds,
             )
         finally:
             await redis.aclose()
