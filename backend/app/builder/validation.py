@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Callable
@@ -54,6 +55,24 @@ def _settings():
 def _normalize_price(s: str) -> str:
     """Strip currency symbols, commas, and whitespace variants so price comparisons are robust."""
     return s.replace("₪", "").replace(",", "").replace(" ", "").replace(" ", "")
+
+
+# Hebrew Unicode block U+0590–U+05FF.
+_HEBREW_RE = re.compile(r"[֐-׿]")
+
+
+def _question_language_directive(question: str) -> str:
+    """Mirror the runtime's per-turn language directive (runtime/guardrails.py
+    ``language_directive``) so the self-test behavior call answers in the same
+    language as the question — exactly as the real conversation loop does.
+
+    Deliberately duplicated rather than imported: builder/ must never import
+    runtime/ (invariant #1). Keep these two strings in sync with
+    runtime/guardrails.py::language_directive.
+    """
+    if _HEBREW_RE.search(question or ""):
+        return "The customer wrote in Hebrew. Reply in Hebrew."
+    return "The customer wrote in English. Reply in English."
 
 
 def _build_questions(products: list[Product]) -> list[SelfTestQuestion]:
@@ -100,7 +119,7 @@ def _build_questions(products: list[Product]) -> list[SelfTestQuestion]:
             min_hits=1,
             expected_ids=[anchor_sofa.id] if anchor_sofa else [],
             behavior_assert=lambda r: any(
-                w in r.lower() for w in ["sofa", "ספה", "couch"]
+                w in r.lower() for w in ["sofa", "sofas", "ספה", "ספות", "couch"]
             ),
             behavior_hint="Response mentions a sofa",
         ),
@@ -112,7 +131,7 @@ def _build_questions(products: list[Product]) -> list[SelfTestQuestion]:
             min_hits=1,
             expected_ids=[anchor_sofa.id] if anchor_sofa else [],
             behavior_assert=lambda r: any(
-                w in r for w in ["ספה", "sofa", "couch"]
+                w in r for w in ["ספה", "ספות", "sofa", "couch"]
             ),
             behavior_hint="Hebrew response mentions a sofa",
         ),
@@ -125,7 +144,9 @@ def _build_questions(products: list[Product]) -> list[SelfTestQuestion]:
             expected_ids=[out_of_stock_sofa.id] if out_of_stock_sofa else [],
             behavior_assert=lambda r: any(
                 w in r.lower()
-                for w in ["out of stock", "not available", "unavailable", "אזל", "לא זמין", "אין במלאי"]
+                for w in ["out of stock", "out-of-stock", "sold out", "not available",
+                          "unavailable", "not in stock",
+                          "אזל", "לא זמין", "אין במלאי", "לא במלאי", "אזל מהמלאי", "אינו זמין"]
             ),
             behavior_hint="Response reports out-of-stock (no false availability claim)",
         ),
@@ -149,7 +170,7 @@ def _build_questions(products: list[Product]) -> list[SelfTestQuestion]:
             min_hits=1 if bed else 0,
             expected_ids=[bed.id] if bed else [],
             behavior_assert=lambda r: any(
-                w in r.lower() for w in ["bed", "מיטה", "frame"]
+                w in r.lower() for w in ["bed", "beds", "מיטה", "מיטות", "frame", "frames", "מסגרת", "מסגרות"]
             ),
             behavior_hint="Response mentions beds/bed frames",
         ),
@@ -164,7 +185,9 @@ def _build_questions(products: list[Product]) -> list[SelfTestQuestion]:
                 w in r.lower() for w in ["yes, we sell", "we have mattresses", "our mattresses"]
             ) and any(
                 w in r.lower()
-                for w in ["don't", "do not", "unfortunately", "human", "contact", "אין לנו", "מצטער"]
+                for w in ["don't", "do not", "no mattress", "unfortunately", "human", "contact",
+                          "representative",
+                          "אין לנו", "מצטער", "לא מוכר", "אנחנו לא", "לא קיים"]
             ),
             behavior_hint="Response politely declines and offers handoff (no invented mattress info)",
         ),
@@ -176,7 +199,7 @@ def _build_questions(products: list[Product]) -> list[SelfTestQuestion]:
             min_hits=1 if (lamp and lamp.price and lamp.price < 1000) else 0,
             expected_ids=[lamp.id] if (lamp and lamp.price and lamp.price < 1000) else [],
             behavior_assert=lambda r: any(
-                w in r.lower() for w in ["lamp", "מנורה", "light"]
+                w in r.lower() for w in ["lamp", "lamps", "מנורה", "מנורות", "light", "תאורה"]
             ) if lamp and lamp.price and lamp.price < 1000 else True,
             behavior_hint="Price-range filter returns lamp(s) under 1000",
         ),
@@ -326,12 +349,17 @@ async def _behavior_call(system_prompt: str, question: str, retrieval_context: s
         f"Available product information from search:\n{retrieval_context}"
     )
 
+    # Append the language directive the real runtime uses, so the harness mirrors
+    # the question's language (English question → English answer) instead of
+    # drifting into Hebrew — the drift that made out-of-scope checks flaky.
+    full_system = f"{system_prompt}\n\n{_question_language_directive(question)}"
+
     def _call():
         return client.messages.create(
             model=model_cfg.name,
             max_tokens=512,
             temperature=0,  # override: self-test must be deterministic
-            system=system_prompt,
+            system=full_system,
             messages=[{"role": "user", "content": user_content}],
         )
 

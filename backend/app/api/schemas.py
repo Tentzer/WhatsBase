@@ -42,6 +42,12 @@ class ProductImagePayload(BaseModel):
     public_url: str | None = None
 
 
+class ProductImageUploadResponse(BaseModel):
+    file_name: str
+    storage_path: str
+    public_url: str
+
+
 class ProductPayload(BaseModel):
     stable_key: str = Field(min_length=1, max_length=255)
     name_he: str = ""

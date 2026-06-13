@@ -55,13 +55,17 @@ async def _set_status(session, ctx: BuildContext, status: str) -> None:
 
     report_dict = ctx.report.to_dict()
     report_dict["self_test"]["passed"] = ctx.self_test_passed
+    report_dict["ui_progress_pct"] = 100
+    report_dict["ui_current_step"] = "finalize"
+
+    build_run_filter = [BuildRun.id == ctx.build_run_id] if ctx.build_run_id else [
+        BuildRun.tenant_id == ctx.tenant_id,
+        BuildRun.status == "running",
+    ]
 
     await session.execute(
         update(BuildRun)
-        .where(
-            BuildRun.tenant_id == ctx.tenant_id,
-            BuildRun.status == "running",
-        )
+        .where(*build_run_filter)
         .values(
             status=status,
             report=report_dict,

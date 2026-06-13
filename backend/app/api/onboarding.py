@@ -4,7 +4,7 @@ import logging
 from datetime import datetime, timezone
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,6 +13,7 @@ from app.api.schemas import (
     BusinessInfoItem,
     MeResponse,
     MeUserResponse,
+    ProductImageUploadResponse,
     ProductPayload,
     ProductResponse,
     TenantCreateRequest,
@@ -23,6 +24,7 @@ from app.api.schemas import (
 from app.core.config import get_settings
 from app.core.crypto import encrypt_token
 from app.core.db import get_session
+from app.core.product_images import upload_owner_image
 from app.core.schema import BusinessInfo, Product, ProductImage, Tenant, User, WhatsAppInstance
 
 logger = logging.getLogger(__name__)
@@ -148,6 +150,45 @@ async def save_business_info(
         )
     await session.commit()
     return payload
+
+
+@router.post("/products/upload-image", response_model=ProductImageUploadResponse)
+async def upload_product_image(
+    file: UploadFile = File(...),
+    ctx: AuthContext = Depends(get_auth_context),
+) -> ProductImageUploadResponse:
+    """Upload a product photo to Supabase Storage for step-2 onboarding.
+
+    The image is linked to a product row when the owner saves the catalog via
+    POST /api/products (which writes the product_images table).
+    """
+    tenant_id = require_tenant(ctx)
+    filename = (file.filename or "").strip()
+    if not filename:
+        raise HTTPException(status_code=400, detail="Filename is required")
+
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Empty file")
+
+    try:
+        storage_path, public_url = await upload_owner_image(
+            tenant_id,
+            filename,
+            content,
+            file.content_type,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("product image upload failed for tenant %s", tenant_id)
+        raise HTTPException(status_code=500, detail="Image upload failed") from exc
+
+    return ProductImageUploadResponse(
+        file_name=filename,
+        storage_path=storage_path,
+        public_url=public_url,
+    )
 
 
 @router.get("/products", response_model=list[ProductResponse])

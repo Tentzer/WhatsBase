@@ -1,18 +1,68 @@
 "use client";
 
 import Papa from "papaparse";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import { useNavigate } from "@/components/navigation-progress";
-import { Trash2, Upload } from "lucide-react";
+import { Loader2, Trash2, Upload } from "lucide-react";
 import { WizardStepper } from "@/components/wizard-stepper";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Progress } from "@/components/ui/progress";
 import { api } from "@/lib/api";
 import { useLocale } from "@/lib/locale";
 import { useOnboardingStore } from "@/lib/store";
 import type { ProductDraft, ProductImageDraft } from "@/lib/types";
+
+type BulkUploadSource = "multi" | "folder";
+
+interface BulkUploadProgress {
+  source: BulkUploadSource;
+  completed: number;
+  total: number;
+}
+
+function UploadProgressBar({
+  label,
+  value,
+  indeterminate = false,
+}: {
+  label: string;
+  value: number;
+  indeterminate?: boolean;
+}) {
+  return (
+    <div className="space-y-1.5" aria-live="polite">
+      <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+        <span className="flex items-center gap-1.5">
+          <Loader2 className="size-3 animate-spin" />
+          {label}
+        </span>
+        {!indeterminate ? <span className="tabular-nums">{Math.round(value)}%</span> : null}
+      </div>
+      {indeterminate ? (
+        <div className="h-1 w-full overflow-hidden rounded-full bg-muted">
+          <div className="h-full w-1/3 animate-pulse rounded-full bg-emerald-600" />
+        </div>
+      ) : (
+        <Progress value={value} />
+      )}
+    </div>
+  );
+}
+
+async function uploadImageFilesSequentially(
+  files: File[],
+  onProgress: (completed: number, total: number) => void,
+): Promise<ProductImageDraft[]> {
+  const drafts: ProductImageDraft[] = [];
+  for (let index = 0; index < files.length; index += 1) {
+    drafts.push(await api.createImageDraft(files[index]));
+    onProgress(index + 1, files.length);
+  }
+  return drafts;
+}
 
 interface CsvRow {
   stable_key: string;
@@ -60,8 +110,12 @@ export default function ProductsOnboardingPage() {
   const [photoLibrary, setPhotoLibrary] = useState<ProductImageDraft[]>(catalogPhotos);
   const [saving, setSaving] = useState(false);
   const [bulkUploading, setBulkUploading] = useState(false);
+  const [bulkUploadProgress, setBulkUploadProgress] = useState<BulkUploadProgress | null>(null);
   const [bulkUploadMessage, setBulkUploadMessage] = useState<string | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [rowUploadingId, setRowUploadingId] = useState<string | null>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
+  const multiInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!products.length) {
@@ -120,16 +174,32 @@ export default function ProductsOnboardingPage() {
     });
   };
 
-  const onImageUpload = async (index: number, file: File | null) => {
+  const onImageUpload = async (rowId: string, file: File | null) => {
     if (!file) return;
-    const imageDraft = await api.createImageDraft(file);
-    const next = [...rows];
-    next[index] = { ...next[index], image: imageDraft };
-    setRows(next);
-    setPhotoLibrary((prev) => mergePhotoLibrary(prev, [imageDraft]));
+    setRowUploadingId(rowId);
+    setUploadError(null);
+    try {
+      const imageDraft = await api.createImageDraft(file);
+      setRows((prev) =>
+        prev.map((row) => (row.id === rowId ? { ...row, image: imageDraft } : row)),
+      );
+      setPhotoLibrary((prev) => mergePhotoLibrary(prev, [imageDraft]));
+    } catch (err) {
+      setUploadError(
+        err instanceof Error
+          ? err.message
+          : t("Image upload failed.", "העלאת התמונה נכשלה."),
+      );
+    } finally {
+      setRowUploadingId(null);
+    }
   };
 
-  const onBulkImageUpload = async (files: FileList | null) => {
+  const onBulkImageUpload = async (
+    files: FileList | null,
+    source: BulkUploadSource,
+    inputRef?: RefObject<HTMLInputElement | null>,
+  ) => {
     if (!files?.length) return;
     const imageFiles = Array.from(files).filter((file) => file.type.startsWith("image/"));
     if (!imageFiles.length) {
@@ -139,23 +209,49 @@ export default function ProductsOnboardingPage() {
 
     setBulkUploading(true);
     setBulkUploadMessage(null);
+    setUploadError(null);
+    setBulkUploadProgress({ source, completed: 0, total: imageFiles.length });
 
-    const drafts = await Promise.all(imageFiles.map((file) => api.createImageDraft(file)));
-    setPhotoLibrary((prev) => mergePhotoLibrary(prev, drafts));
+    let completedCount = 0;
+    try {
+      const drafts = await uploadImageFilesSequentially(imageFiles, (completed, total) => {
+        completedCount = completed;
+        setBulkUploadProgress({ source, completed, total });
+      });
+      setPhotoLibrary((prev) => mergePhotoLibrary(prev, drafts));
 
-    setRows((prev) => {
-      const result = autoAttachImages(prev, drafts);
-      setBulkUploadMessage(
-        t(
-          `Uploaded ${drafts.length} photos. Auto-attached ${result.attachedCount} to products without images.`,
-          `הועלו ${drafts.length} תמונות. ${result.attachedCount} צורפו אוטומטית למוצרים בלי תמונה.`,
-        ),
+      setRows((prev) => {
+        const result = autoAttachImages(prev, drafts);
+        setBulkUploadMessage(
+          t(
+            `Uploaded ${drafts.length} photos. Auto-attached ${result.attachedCount} to products without images.`,
+            `הועלו ${drafts.length} תמונות. ${result.attachedCount} צורפו אוטומטית למוצרים בלי תמונה.`,
+          ),
+        );
+        return result.items;
+      });
+    } catch (err) {
+      setUploadError(
+        err instanceof Error
+          ? err.message
+          : t(
+              `Upload failed after ${completedCount} of ${imageFiles.length} photos.`,
+              `ההעלאה נכשלה אחרי ${completedCount} מתוך ${imageFiles.length} תמונות.`,
+            ),
       );
-      return result.items;
-    });
-
-    setBulkUploading(false);
+    } finally {
+      setBulkUploading(false);
+      setBulkUploadProgress(null);
+      if (inputRef?.current) {
+        inputRef.current.value = "";
+      }
+    }
   };
+
+  const bulkProgressPercent =
+    bulkUploadProgress && bulkUploadProgress.total > 0
+      ? (bulkUploadProgress.completed / bulkUploadProgress.total) * 100
+      : 0;
 
   const removeProduct = (id: string) => {
     setRows((prev) => prev.filter((item) => item.id !== id));
@@ -221,12 +317,22 @@ export default function ProductsOnboardingPage() {
             <div className="space-y-2">
               <Label>{t("Upload many photos", "העלאת תמונות מרובות")}</Label>
               <Input
+                ref={multiInputRef}
                 type="file"
                 accept="image/*"
                 multiple
-                onChange={(event) => onBulkImageUpload(event.target.files)}
+                onChange={(event) => void onBulkImageUpload(event.target.files, "multi", multiInputRef)}
                 disabled={bulkUploading}
               />
+              {bulkUploadProgress?.source === "multi" ? (
+                <UploadProgressBar
+                  label={t(
+                    `Uploading photo ${bulkUploadProgress.completed} of ${bulkUploadProgress.total}...`,
+                    `מעלה תמונה ${bulkUploadProgress.completed} מתוך ${bulkUploadProgress.total}...`,
+                  )}
+                  value={bulkProgressPercent}
+                />
+              ) : null}
             </div>
             <div className="space-y-2">
               <Label>{t("Upload a full folder", "העלאת תיקייה מלאה")}</Label>
@@ -235,10 +341,19 @@ export default function ProductsOnboardingPage() {
                 type="file"
                 multiple
                 accept="image/*"
-                onChange={(event) => onBulkImageUpload(event.target.files)}
+                onChange={(event) => void onBulkImageUpload(event.target.files, "folder", folderInputRef)}
                 disabled={bulkUploading}
                 className="h-8 w-full rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm text-foreground transition-colors outline-none file:hidden focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50"
               />
+              {bulkUploadProgress?.source === "folder" ? (
+                <UploadProgressBar
+                  label={t(
+                    `Uploading photo ${bulkUploadProgress.completed} of ${bulkUploadProgress.total}...`,
+                    `מעלה תמונה ${bulkUploadProgress.completed} מתוך ${bulkUploadProgress.total}...`,
+                  )}
+                  value={bulkProgressPercent}
+                />
+              ) : null}
             </div>
             <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground sm:col-span-2">
               {t(
@@ -246,11 +361,12 @@ export default function ProductsOnboardingPage() {
                 "מיועד לתיקיית תמונות מלאה של המוצרים. התמונות נשמרות בספריית תמונות וגם משויכות אוטומטית למוצרים שחסרה להם תמונה.",
               )}
               {bulkUploadMessage ? <p className="mt-2 text-emerald-700">{bulkUploadMessage}</p> : null}
+              {uploadError ? <p className="mt-2 text-red-700">{uploadError}</p> : null}
             </div>
           </div>
 
           <div className="space-y-3">
-            {rows.map((row, index) => (
+            {rows.map((row) => (
               <div key={row.id} className="grid gap-3 rounded-lg border p-4">
                 <div className="grid gap-3 md:grid-cols-2">
                   <Input
@@ -275,23 +391,40 @@ export default function ProductsOnboardingPage() {
                     placeholder="Price"
                   />
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Label className="cursor-pointer rounded-md border px-3 py-2 text-sm hover:bg-accent">
-                    <Upload className="me-1 inline size-4" />
-                    {t("Attach image", "הוספת תמונה")}
-                    <Input
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={(event) => onImageUpload(index, event.target.files?.[0] ?? null)}
+                <div className="flex flex-col gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Label
+                      className={`cursor-pointer rounded-md border px-3 py-2 text-sm hover:bg-accent ${rowUploadingId === row.id ? "pointer-events-none opacity-60" : ""}`}
+                    >
+                      <Upload className="me-1 inline size-4" />
+                      {rowUploadingId === row.id
+                        ? t("Uploading...", "מעלה...")
+                        : t("Attach image", "הוספת תמונה")}
+                      <Input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        disabled={rowUploadingId === row.id || bulkUploading}
+                        onChange={(event) => {
+                          void onImageUpload(row.id, event.target.files?.[0] ?? null);
+                          event.target.value = "";
+                        }}
+                      />
+                    </Label>
+                    <span className="text-sm text-muted-foreground">
+                      {row.image?.fileName ?? t("No image selected", "לא נבחרה תמונה")}
+                    </span>
+                    <Button type="button" variant="ghost" size="sm" onClick={() => removeProduct(row.id)}>
+                      <Trash2 className="size-4" />
+                    </Button>
+                  </div>
+                  {rowUploadingId === row.id ? (
+                    <UploadProgressBar
+                      label={t("Uploading image...", "מעלה תמונה...")}
+                      value={0}
+                      indeterminate
                     />
-                  </Label>
-                  <span className="text-sm text-muted-foreground">
-                    {row.image?.fileName ?? t("No image selected", "לא נבחרה תמונה")}
-                  </span>
-                  <Button type="button" variant="ghost" size="sm" onClick={() => removeProduct(row.id)}>
-                    <Trash2 className="size-4" />
-                  </Button>
+                  ) : null}
                 </div>
               </div>
             ))}

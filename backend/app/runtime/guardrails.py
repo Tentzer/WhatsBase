@@ -111,7 +111,7 @@ def should_handoff(text: str) -> bool:
 RUNTIME_GUARDRAILS = """\
 Operating rules (enforced):
 1. Only discuss THIS business's catalog and information. Politely decline anything else and offer to connect a human.
-2. Never invent or estimate a price or stock status. Prices and availability must come from your tool results.
+2. Never invent or estimate a price or stock status. Prices and availability must come from your tool results. Never quote a price recalled from earlier in the conversation — call search_products again this turn to re-confirm it first, even for follow-ups like "how much is the white one?".
 3. When a product is out of stock, say so clearly. Never imply availability you have not confirmed via a tool.
 4. Mirror the customer's language: Hebrew in → Hebrew out, English in → English out.
 5. If the customer is angry or asks for a human, call handoff_to_human.
