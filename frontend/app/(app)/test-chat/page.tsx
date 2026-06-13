@@ -10,7 +10,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api";
 import { useLocale } from "@/lib/locale";
-import { getMessageDirection } from "@/lib/text-direction";
+import { getMessageDirection, messageTextAlignClass } from "@/lib/text-direction";
+import { cn } from "@/lib/utils";
 import type { TestChatMessage } from "@/lib/types";
 
 export default function TestChatPage() {
@@ -67,6 +68,8 @@ export default function TestChatPage() {
     [locale],
   );
 
+  const inputDir = getMessageDirection(input, locale);
+
   const sendMessage = async () => {
     if (!input.trim() || sending) return;
     const text = input.trim();
@@ -96,7 +99,7 @@ export default function TestChatPage() {
           className="scrollbar-premium flex-1 space-y-4 overflow-y-auto p-4"
         >
           {messages.map((message) => {
-            const messageDir = getMessageDirection(message.text);
+            const messageDir = getMessageDirection(message.text, locale);
 
             return (
             <div
@@ -104,14 +107,21 @@ export default function TestChatPage() {
               className={`flex flex-col gap-3 ${message.role === "user" ? "items-end" : "items-start"}`}
             >
               <div
-                dir={messageDir}
                 className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed shadow-sm ${
                   message.role === "user"
                     ? "bg-emerald-600 text-white"
                     : "border border-border/60 bg-muted/80 text-foreground"
                 }`}
               >
-                <p className="whitespace-pre-wrap text-start">{message.text}</p>
+                <p
+                  dir={messageDir}
+                  className={cn(
+                    "chat-message-text whitespace-pre-wrap",
+                    messageTextAlignClass(messageDir),
+                  )}
+                >
+                  {message.text}
+                </p>
               </div>
 
               {message.role === "assistant" && message.cards?.length ? (
@@ -161,9 +171,9 @@ export default function TestChatPage() {
               value={input}
               onChange={(event) => setInput(event.target.value)}
               placeholder={placeholder}
-              dir={getMessageDirection(input)}
+              dir={inputDir}
               disabled={sending}
-              className="text-start"
+              className={cn("chat-message-text", messageTextAlignClass(inputDir))}
               onKeyDown={(event) => {
                 if (event.key === "Enter") {
                   event.preventDefault();

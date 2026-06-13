@@ -218,6 +218,11 @@ html.dark {
   background: oklch(0.72 0.16 154.45 / 0.85);
 }
 
+.chat-message-text {
+  width: 100%;
+  unicode-bidi: plaintext;
+}
+
 @keyframes chat-typing-bounce {
   0%,
   60%,
