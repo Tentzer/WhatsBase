@@ -29,31 +29,40 @@ from app.intake.queue import get_redis_pool
 logger = logging.getLogger(__name__)
 
 
-async def main() -> None:
+_POLLER_RETRY_SECONDS = 30
+
+
+async def _load_polling_instances() -> list[WhatsAppInstance]:
     async with SessionLocal() as session:
         result = await session.execute(
             select(WhatsAppInstance).where(WhatsAppInstance.intake_mode == "polling")
         )
-        instances = result.scalars().all()
+        return list(result.scalars().all())
 
-    if not instances:
-        logger.warning(
-            "No polling-mode WhatsApp instances yet — waiting. "
-            "Connect WhatsApp in the app (INTAKE_MODE=polling)."
-        )
-        while True:
-            await asyncio.sleep(30)
 
-    logger.info("Found %d polling instance(s)", len(instances))
+async def main() -> None:
     redis = await get_redis_pool()
 
-    tasks = [asyncio.create_task(poll_instance(inst, redis)) for inst in instances]
-    try:
-        await asyncio.gather(*tasks)
-    except asyncio.CancelledError:
-        for t in tasks:
-            t.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
+    while True:
+        instances = await _load_polling_instances()
+        if not instances:
+            logger.warning(
+                "No polling-mode WhatsApp instances yet — retrying in %ds. "
+                "Connect WhatsApp in the app (INTAKE_MODE=polling).",
+                _POLLER_RETRY_SECONDS,
+            )
+            await asyncio.sleep(_POLLER_RETRY_SECONDS)
+            continue
+
+        logger.info("Found %d polling instance(s)", len(instances))
+        tasks = [asyncio.create_task(poll_instance(inst, redis)) for inst in instances]
+        try:
+            await asyncio.gather(*tasks)
+        except asyncio.CancelledError:
+            for t in tasks:
+                t.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+        break  # gather only returns if all poll tasks exit (should not happen normally)
 
 
 if __name__ == "__main__":
