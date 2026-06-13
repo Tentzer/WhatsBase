@@ -416,6 +416,7 @@ const realApi: ApiClient = {
     >("/api/products", {
       method: "POST",
       body: products.map((item) => mapProductToApiPayload(item)),
+      timeoutMs: 120000,
     });
     return res.map((item) => mapApiProductToDraft(item));
   },

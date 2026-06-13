@@ -317,24 +317,29 @@ async def save_products(
     session: AsyncSession = Depends(get_session),
 ) -> list[ProductResponse]:
     tenant_id = require_tenant(ctx)
-    output: list[ProductResponse] = []
+    stable_keys = [item.stable_key.strip() for item in payload if item.stable_key.strip()]
+    if not stable_keys:
+        return await _product_responses_for_tenant(session, tenant_id)
 
+    existing_result = await session.execute(
+        select(Product)
+        .where(Product.tenant_id == tenant_id, Product.stable_key.in_(stable_keys))
+        .options(selectinload(Product.images))
+    )
+    products_by_key = {product.stable_key: product for product in existing_result.scalars().all()}
+
+    created_any = False
     for item in payload:
         stable_key = item.stable_key.strip()
         if not stable_key:
             continue
 
-        product_result = await session.execute(
-            select(Product).where(
-                Product.tenant_id == tenant_id,
-                Product.stable_key == stable_key,
-            )
-        )
-        product = product_result.scalar_one_or_none()
+        product = products_by_key.get(stable_key)
         if product is None:
             product = Product(tenant_id=tenant_id, stable_key=stable_key)
             session.add(product)
-            await session.flush()
+            products_by_key[stable_key] = product
+            created_any = True
 
         product.name_he = item.name_he
         product.name_en = item.name_en
@@ -350,55 +355,20 @@ async def save_products(
         product.source = "owner_input"
 
         image_payload = item.image
-        image_row = None
         if image_payload is not None:
-            image_result = await session.execute(
-                select(ProductImage)
-                .where(ProductImage.product_id == product.id)
-                .order_by(ProductImage.created_at.asc())
-            )
-            image_row = image_result.scalars().first()
+            image_row = product.images[0] if product.images else None
             if image_row is None:
-                image_row = ProductImage(product_id=product.id, storage_path=image_payload.storage_path)
+                image_row = ProductImage(storage_path=image_payload.storage_path)
                 session.add(image_row)
-
+                product.images.append(image_row)
             image_row.storage_path = image_payload.storage_path
             image_row.public_url = image_payload.public_url
-        else:
-            existing_result = await session.execute(
-                select(ProductImage)
-                .where(ProductImage.product_id == product.id)
-                .order_by(ProductImage.created_at.asc())
-            )
-            image_row = existing_result.scalars().first()
 
-        output.append(
-            ProductResponse(
-                id=product.id,
-                stable_key=product.stable_key,
-                name_he=product.name_he or "",
-                name_en=product.name_en or "",
-                category=product.category or "",
-                price=float(product.price or 0),
-                currency=product.currency,
-                in_stock=product.in_stock,
-                colors=str((product.attributes or {}).get("colors", "")),
-                materials=str((product.attributes or {}).get("materials", "")),
-                style=str((product.attributes or {}).get("style", "")),
-                image=(
-                    None
-                    if image_row is None
-                    else {
-                        "file_name": None,
-                        "storage_path": image_row.storage_path,
-                        "public_url": image_row.public_url,
-                    }
-                ),
-            )
-        )
+    if created_any:
+        await session.flush()
 
     await session.commit()
-    return output
+    return await _product_responses_for_tenant(session, tenant_id)
 
 
 @router.get("/whatsapp/status", response_model=WhatsAppStatusResponse)

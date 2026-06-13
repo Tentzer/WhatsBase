@@ -13,7 +13,7 @@ import { useLocale } from "@/lib/locale";
 import type { AgentStatus, BuildRun } from "@/lib/types";
 
 const POLL_INTERVAL_MS = 2500;
-const POLL_TIMEOUT_MS = 15 * 60 * 1000;
+const POLL_TIMEOUT_MS = 4 * 60 * 60 * 1000;
 
 async function pollBuildRun(
   buildRunId: string,

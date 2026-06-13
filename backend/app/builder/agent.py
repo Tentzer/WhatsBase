@@ -29,7 +29,7 @@ from app.core.schema import Agent, BuildRun, Tenant
 
 logger = logging.getLogger(__name__)
 
-MAX_ITERATIONS = 40  # safety cap; a full build needs ~30 tool calls
+MAX_ITERATIONS = 500  # safety cap; large catalogs need ~2 turns per product + overhead
 
 
 @lru_cache(maxsize=1)

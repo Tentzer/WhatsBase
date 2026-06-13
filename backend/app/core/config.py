@@ -38,6 +38,8 @@ class Settings(BaseSettings):
 
     # --- Queue ---
     redis_url: str = "redis://localhost:6379"
+    # arq per-job timeout for long-running build tasks (seconds). Default 4 hours.
+    build_job_timeout_seconds: int = 14_400
 
     # --- Observability (noop-safe when blank, see observability.py) ---
     langfuse_public_key: str = ""

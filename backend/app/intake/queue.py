@@ -38,6 +38,7 @@ class WorkerSettings:
         _tasks.run_incremental_build,
     ]
     redis_settings = _redis_settings()
+    job_timeout = get_settings().build_job_timeout_seconds
 
     @staticmethod
     async def on_startup(ctx: dict) -> None:
