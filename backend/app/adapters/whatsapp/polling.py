@@ -52,8 +52,11 @@ async def poll_instance(instance: WhatsAppInstance, redis: ArqRedis) -> None:
                     "caption": msg.caption,
                 }
                 await redis.enqueue_job("process_incoming_message", payload)
-                logger.debug(
-                    "Enqueued message_id=%s chat=%s", msg.message_id, msg.chat_id
+                logger.info(
+                    "enqueued incoming message_id=%s chat=%s sender=%s",
+                    msg.message_id,
+                    msg.chat_id,
+                    msg.sender,
                 )
 
                 if msg.notification_id is not None:

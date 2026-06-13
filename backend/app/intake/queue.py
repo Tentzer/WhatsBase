@@ -7,9 +7,14 @@ capable pool without duplicating the connection config.
 
 from __future__ import annotations
 
+import logging
+
 from arq.connections import ArqRedis, RedisSettings, create_pool
 
 from app.core.config import get_settings
+from app.intake.tasks import _parse_allowlist
+
+logger = logging.getLogger(__name__)
 
 
 def _redis_settings() -> RedisSettings:
@@ -37,6 +42,14 @@ class WorkerSettings:
     @staticmethod
     async def on_startup(ctx: dict) -> None:
         ctx["redis_pool"] = await get_redis_pool()
+        allowlist = _parse_allowlist(get_settings().allowed_test_numbers)
+        if allowlist:
+            logger.info(
+                "ALLOWED_TEST_NUMBERS active — %d number(s); groups always blocked",
+                len(allowlist),
+            )
+        else:
+            logger.info("ALLOWED_TEST_NUMBERS empty — all WhatsApp chats accepted")
 
     @staticmethod
     async def on_shutdown(ctx: dict) -> None:

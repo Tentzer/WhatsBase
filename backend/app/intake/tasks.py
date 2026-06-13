@@ -38,22 +38,56 @@ _DEBOUNCE_SECONDS = 2.5  # wait this long, merging a burst from the same chat
 _BURST_TTL = 60  # safety expiry on the burst buffer (seconds)
 
 
+def _normalize_wa_digits(raw: str) -> str:
+    """Normalize phone-ish ids for allowlist matching (972…, not 054…)."""
+    digits = "".join(ch for ch in raw if ch.isdigit())
+    if not digits:
+        return ""
+    if digits.startswith("0") and len(digits) >= 9:
+        return "972" + digits[1:]
+    if len(digits) == 9 and digits.startswith("5"):
+        return "972" + digits
+    return digits
+
+
 def _parse_allowlist(raw: str) -> set[str]:
-    return {n.strip() for n in raw.split(",") if n.strip()}
+    out: set[str] = set()
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        norm = _normalize_wa_digits(part)
+        if norm:
+            out.add(norm)
+    return out
 
 
-def _is_allowed(chat_id: str, allowlist: set[str]) -> bool:
+def _identity_keys(chat_id: str, sender: str | None) -> set[str]:
+    """Keys to match against the allowlist for a direct (non-group) chat."""
+    keys: set[str] = set()
+    for part in (chat_id, sender or ""):
+        if not part or part.endswith("@g.us"):
+            continue
+        prefix = part.split("@", 1)[0]
+        norm = _normalize_wa_digits(prefix)
+        if norm:
+            keys.add(norm)
+    return keys
+
+
+def _is_allowed(chat_id: str, allowlist: set[str], sender: str | None = None) -> bool:
     """Return True if the chat may be replied to.
 
     Empty allowlist = no filter. Non-empty allowlist drops all groups (@g.us)
-    and any direct chat whose bare digits aren't in the list.
+    and any direct chat whose phone isn't in the list. Uses both chat_id and
+    sender so @lid chats (unsaved contacts) still match when sender is @c.us.
     """
     if not allowlist:
         return True
     if chat_id.endswith("@g.us"):
         return False
-    digits = chat_id.split("@", 1)[0]
-    return digits in allowlist
+    keys = _identity_keys(chat_id, sender)
+    return bool(keys & allowlist)
 
 
 def _burst_key(instance_id: str, chat_id: str) -> str:
@@ -82,8 +116,14 @@ async def process_incoming_message(ctx: dict, payload: dict) -> None:
         return
 
     allowlist = _parse_allowlist(get_settings().allowed_test_numbers)
-    if not _is_allowed(chat_id, allowlist):
-        logger.info("dropped: sender %s not in allowlist", chat_id)
+    sender = payload.get("sender")
+    if not _is_allowed(chat_id, allowlist, sender):
+        logger.info(
+            "dropped: chat=%s sender=%s not in allowlist (%d allowed numbers)",
+            chat_id,
+            sender,
+            len(allowlist),
+        )
         return
 
     logger.info(

@@ -149,7 +149,19 @@ class GreenApiAdapter(WhatsAppAdapter):
         msg = self.normalize_polling_notification(response.data)
         if msg is None:
             # Non-message notification — ack it and drop.
+            body = (response.data or {}).get("body") or {}
             receipt_id = (response.data or {}).get("receiptId")
+            wh = body.get("typeWebhook")
+            if wh == "incomingMessageReceived":
+                logger.warning(
+                    "unparsed incomingMessageReceived — acked; idMessage=%s chatId=%s "
+                    "typeMessage=%s",
+                    body.get("idMessage"),
+                    (body.get("senderData") or {}).get("chatId"),
+                    (body.get("messageData") or {}).get("typeMessage"),
+                )
+            elif wh:
+                logger.debug("acked non-message webhook %s", wh)
             if receipt_id is not None:
                 await self.ack(receipt_id)
             return []

@@ -39,12 +39,14 @@ class FakeRedis:
         self.enqueued.append((name, args, kwargs))
 
 
-def _payload(chat_id: str, message_id: str = "MSG_A") -> dict:
+def _payload(
+    chat_id: str, message_id: str = "MSG_A", sender: str | None = None
+) -> dict:
     return {
         "instance_id": "111",
         "message_id": message_id,
         "chat_id": chat_id,
-        "sender": chat_id,
+        "sender": sender or chat_id,
         "type": "text",
         "text": "hello",
     }
@@ -61,6 +63,7 @@ def test_parse_allowlist_handles_whitespace_and_blanks():
         "972545495209",
         "972500000000",
     }
+    assert _parse_allowlist("0545495209") == {"972545495209"}
 
 
 def test_is_allowed_empty_allowlist_lets_everything_through():
@@ -78,6 +81,20 @@ def test_is_allowed_filters_direct_chats():
 def test_is_allowed_drops_groups_when_allowlist_active():
     al = {"972545495209"}
     assert _is_allowed("120363402096476116@g.us", al) is False
+
+
+def test_is_allowed_lid_chat_matches_sender_on_allowlist():
+    al = {"972545495209"}
+    assert _is_allowed(
+        "120650379300963@lid", al, sender="972545495209@c.us"
+    ) is True
+
+
+def test_is_allowed_lid_chat_without_matching_sender_is_dropped():
+    al = {"972545495209"}
+    assert _is_allowed(
+        "120650379300963@lid", al, sender="972500000000@c.us"
+    ) is False
 
 
 # ---------- end-to-end through process_incoming_message ----------
@@ -126,6 +143,27 @@ async def test_group_chat_dropped_when_allowlist_active(monkeypatch):
     )
 
     assert redis.enqueued == []
+
+    get_settings.cache_clear()
+
+
+@pytest.mark.asyncio
+async def test_lid_chat_allowed_when_sender_on_allowlist(monkeypatch):
+    monkeypatch.setenv("ALLOWED_TEST_NUMBERS", "972545495209")
+    from app.core.config import get_settings
+    get_settings.cache_clear()
+
+    redis = FakeRedis()
+    await process_incoming_message(
+        {"redis": redis},
+        _payload(
+            "120650379300963@lid",
+            sender="972545495209@c.us",
+        ),
+    )
+
+    assert len(redis.enqueued) == 1
+    assert redis.enqueued[0][0] == "run_agent_turn"
 
     get_settings.cache_clear()
 
