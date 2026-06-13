@@ -135,31 +135,9 @@ async def _download_bytes(
 
 
 async def _list_orphan_uploads(tenant_id: str, linked_paths: set[str]) -> list[tuple[str, str]]:
-    """Return (storage_path, filename) for upload-folder images not linked to products."""
-    try:
-        from app.core.supabase import get_supabase
+    from app.core.product_images import list_orphan_tenant_uploads
 
-        supabase = get_supabase()
-        prefix = f"{tenant_id}/uploads"
-
-        def _list() -> list:
-            return supabase.storage.from_(BUCKET).list(prefix)
-
-        entries = await asyncio.to_thread(_list)
-    except Exception as exc:
-        logger.warning("unable to list orphan uploads for tenant=%s: %s", tenant_id, exc)
-        return []
-
-    orphans: list[tuple[str, str]] = []
-    for entry in entries or []:
-        name = getattr(entry, "name", None) or (entry.get("name") if isinstance(entry, dict) else None)
-        if not name or name.endswith("/"):
-            continue
-        storage_path = f"{prefix}/{name}"
-        if storage_path in linked_paths:
-            continue
-        orphans.append((storage_path, name))
-    return orphans
+    return await list_orphan_tenant_uploads(tenant_id, linked_paths)
 
 
 async def materialize_tenant_assets(session: AsyncSession, tenant_id: str) -> Path:

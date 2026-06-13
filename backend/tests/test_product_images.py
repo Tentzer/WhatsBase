@@ -19,6 +19,15 @@ def test_build_upload_storage_path_is_tenant_scoped():
     assert path.endswith("_sofa-white.webp")
 
 
+def test_stable_key_from_upload_object_name_strips_uuid_prefix():
+    from app.core.product_images import stable_key_from_upload_object_name
+
+    assert (
+        stable_key_from_upload_object_name("abc123def456_bed-america-black-mattress-gift.jpg")
+        == "bed-america-black-mattress-gift"
+    )
+
+
 def test_validate_image_upload_rejects_non_images():
     with pytest.raises(ValueError, match="Unsupported image type"):
         validate_image_upload("notes.txt", "text/plain", 100)

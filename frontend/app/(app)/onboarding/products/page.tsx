@@ -102,6 +102,79 @@ function productFromCsv(row: CsvRow): ProductDraft {
   };
 }
 
+function stableKeyFromImage(image: ProductImageDraft): string {
+  const path = image.relativePath ?? image.fileName;
+  const baseName = path.split(/[/\\]/).pop() ?? image.fileName;
+  return baseName.replace(/\.[^.]+$/i, "").toLowerCase();
+}
+
+function productDraftFromImage(image: ProductImageDraft, stableKey: string): ProductDraft {
+  return {
+    id: stableKey,
+    stableKey,
+    nameHe: "",
+    nameEn: "",
+    category: "",
+    price: 0,
+    currency: "ILS",
+    inStock: true,
+    colors: "",
+    materials: "",
+    style: "",
+    image,
+  };
+}
+
+function mergeUploadedPhotosIntoRows(
+  items: ProductDraft[],
+  images: ProductImageDraft[],
+): { items: ProductDraft[]; attachedCount: number; createdCount: number } {
+  if (!images.length) {
+    return { items, attachedCount: 0, createdCount: 0 };
+  }
+
+  const attached = autoAttachImages(items, images);
+  const usedKeys = new Set(attached.items.map((row) => row.stableKey));
+  const linkedImageIds = new Set(
+    attached.items.flatMap((row) => (row.image ? [row.image.id] : [])),
+  );
+
+  const created: ProductDraft[] = [];
+  for (const image of images) {
+    if (linkedImageIds.has(image.id)) continue;
+
+    let stableKey = stableKeyFromImage(image);
+    let suffix = 1;
+    const baseKey = stableKey;
+    while (usedKeys.has(stableKey)) {
+      stableKey = `${baseKey}-${suffix}`;
+      suffix += 1;
+    }
+    usedKeys.add(stableKey);
+    created.push(productDraftFromImage(image, stableKey));
+  }
+
+  return {
+    items: [...attached.items, ...created],
+    attachedCount: attached.attachedCount,
+    createdCount: created.length,
+  };
+}
+
+function autoAttachImages(items: ProductDraft[], images: ProductImageDraft[]) {
+  if (!images.length) return { items, attachedCount: 0 };
+  const nextItems = [...items];
+  let photoIndex = 0;
+  let attachedCount = 0;
+  for (let index = 0; index < nextItems.length && photoIndex < images.length; index += 1) {
+    if (nextItems[index]?.image) continue;
+    nextItems[index] = { ...nextItems[index], image: images[photoIndex] };
+    photoIndex += 1;
+    attachedCount += 1;
+  }
+  return { items: nextItems, attachedCount };
+}
+
 export default function ProductsOnboardingPage() {
   const navigate = useNavigate();
   const { t } = useLocale();
@@ -114,14 +187,44 @@ export default function ProductsOnboardingPage() {
   const [bulkUploadMessage, setBulkUploadMessage] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [rowUploadingId, setRowUploadingId] = useState<string | null>(null);
+  const [syncingUploads, setSyncingUploads] = useState(true);
   const folderInputRef = useRef<HTMLInputElement>(null);
   const multiInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (!products.length) {
-      void api.getProducts().then((items) => setRows(items));
-    }
-  }, [products.length]);
+    void (async () => {
+      if (products.length) {
+        setRows(products);
+        setSyncingUploads(false);
+        return;
+      }
+      try {
+        const items = await api.syncProductsFromUploads();
+        setRows(items);
+        setProducts(items);
+        if (items.length) {
+          setBulkUploadMessage(
+            t(
+              `Recovered ${items.length} products from your uploaded photos.`,
+              `שוחזרו ${items.length} מוצרים מהתמונות שהועלו.`,
+            ),
+          );
+        }
+      } catch (err) {
+        const fallback = await api.getProducts().catch(() => [] as ProductDraft[]);
+        setRows(fallback);
+        if (!fallback.length) {
+          setUploadError(
+            err instanceof Error
+              ? err.message
+              : t("Could not recover uploaded photos.", "לא ניתן לשחזר את התמונות שהועלו."),
+          );
+        }
+      } finally {
+        setSyncingUploads(false);
+      }
+    })();
+  }, [products.length, setProducts, t]);
 
   useEffect(() => {
     const folderInput = folderInputRef.current;
@@ -129,6 +232,13 @@ export default function ProductsOnboardingPage() {
     folderInput.setAttribute("webkitdirectory", "");
     folderInput.setAttribute("directory", "");
   }, []);
+
+  useEffect(() => {
+    if (rows.length === 0 && photoLibrary.length > 0) {
+      const result = mergeUploadedPhotosIntoRows([], photoLibrary);
+      setRows(result.items);
+    }
+  }, [photoLibrary.length, rows.length]);
 
   const mergePhotoLibrary = (
     existing: ProductImageDraft[],
@@ -144,20 +254,6 @@ export default function ProductsOnboardingPage() {
       deduped.set(key, image);
     }
     return Array.from(deduped.values());
-  };
-
-  const autoAttachImages = (items: ProductDraft[], images: ProductImageDraft[]) => {
-    if (!images.length) return { items, attachedCount: 0 };
-    const nextItems = [...items];
-    let photoIndex = 0;
-    let attachedCount = 0;
-    for (let index = 0; index < nextItems.length && photoIndex < images.length; index += 1) {
-      if (nextItems[index]?.image) continue;
-      nextItems[index] = { ...nextItems[index], image: images[photoIndex] };
-      photoIndex += 1;
-      attachedCount += 1;
-    }
-    return { items: nextItems, attachedCount };
   };
 
   const onCsvUpload = (file: File | null) => {
@@ -221,13 +317,23 @@ export default function ProductsOnboardingPage() {
       setPhotoLibrary((prev) => mergePhotoLibrary(prev, drafts));
 
       setRows((prev) => {
-        const result = autoAttachImages(prev, drafts);
-        setBulkUploadMessage(
-          t(
-            `Uploaded ${drafts.length} photos. Auto-attached ${result.attachedCount} to products without images.`,
-            `הועלו ${drafts.length} תמונות. ${result.attachedCount} צורפו אוטומטית למוצרים בלי תמונה.`,
-          ),
-        );
+        const result = mergeUploadedPhotosIntoRows(prev, drafts);
+        const parts = [
+          t(`Uploaded ${drafts.length} photos.`, `הועלו ${drafts.length} תמונות.`),
+          result.attachedCount > 0
+            ? t(
+                `Attached ${result.attachedCount} to existing products.`,
+                `צורפו ${result.attachedCount} למוצרים קיימים.`,
+              )
+            : null,
+          result.createdCount > 0
+            ? t(
+                `Created ${result.createdCount} product rows from filenames.`,
+                `נוצרו ${result.createdCount} שורות מוצר משמות הקבצים.`,
+              )
+            : null,
+        ].filter(Boolean);
+        setBulkUploadMessage(parts.join(" "));
         return result.items;
       });
     } catch (err) {
@@ -275,7 +381,9 @@ export default function ProductsOnboardingPage() {
     setSaving(true);
     setSaveError(null);
     try {
-      const saved = await api.saveProducts(rows);
+      const rowsToSave =
+        rows.length > 0 ? rows : mergeUploadedPhotosIntoRows([], photoLibrary).items;
+      const saved = await api.saveProducts(rowsToSave);
       setProducts(saved);
       setCatalogPhotos(photoLibrary);
       navigate("/onboarding/build");
@@ -303,7 +411,12 @@ export default function ProductsOnboardingPage() {
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-2">
               <Label>{t("Import CSV", "ייבוא CSV")}</Label>
-              <Input type="file" accept=".csv" onChange={(event) => onCsvUpload(event.target.files?.[0] ?? null)} />
+              <Input
+                type="file"
+                accept=".csv"
+                disabled={syncingUploads || bulkUploading}
+                onChange={(event) => onCsvUpload(event.target.files?.[0] ?? null)}
+              />
             </div>
             <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
               {t(
@@ -312,6 +425,14 @@ export default function ProductsOnboardingPage() {
               )}
             </div>
           </div>
+
+          {syncingUploads ? (
+            <UploadProgressBar
+              label={t("Recovering your uploaded photos...", "משחזר את התמונות שהועלו...")}
+              value={0}
+              indeterminate
+            />
+          ) : null}
 
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-2">
@@ -322,7 +443,7 @@ export default function ProductsOnboardingPage() {
                 accept="image/*"
                 multiple
                 onChange={(event) => void onBulkImageUpload(event.target.files, "multi", multiInputRef)}
-                disabled={bulkUploading}
+                disabled={syncingUploads || bulkUploading}
               />
               {bulkUploadProgress?.source === "multi" ? (
                 <UploadProgressBar
@@ -342,7 +463,7 @@ export default function ProductsOnboardingPage() {
                 multiple
                 accept="image/*"
                 onChange={(event) => void onBulkImageUpload(event.target.files, "folder", folderInputRef)}
-                disabled={bulkUploading}
+                disabled={syncingUploads || bulkUploading}
                 className="h-8 w-full rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm text-foreground transition-colors outline-none file:hidden focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50"
               />
               {bulkUploadProgress?.source === "folder" ? (
@@ -430,7 +551,12 @@ export default function ProductsOnboardingPage() {
             ))}
             {!rows.length ? (
               <p className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
-                {t("Import a CSV to start adding products.", "ייבאו CSV כדי להתחיל להוסיף מוצרים.")}
+                {photoLibrary.length
+                  ? t(
+                      "Photos are uploaded. Save and continue — the builder will caption them in the next step. Import a CSV anytime to add names and prices first.",
+                      "התמונות הועלו. אפשר לשמור ולהמשיך — הבילדר יתאר אותן בשלב הבא. אפשר לייבא CSV בכל עת כדי להוסיף שמות ומחירים קודם.",
+                    )
+                  : t("Import a CSV or upload photos to start adding products.", "ייבאו CSV או העלו תמונות כדי להתחיל להוסיף מוצרים.")}
               </p>
             ) : null}
           </div>
@@ -471,7 +597,7 @@ export default function ProductsOnboardingPage() {
           <Button
             type="button"
             onClick={saveAndContinue}
-            disabled={saving || rows.length === 0}
+            disabled={saving || syncingUploads || (rows.length === 0 && photoLibrary.length === 0)}
             className="bg-emerald-600 hover:bg-emerald-700"
           >
             {saving ? t("Saving...", "שומר...") : t("Save and continue", "שמירה והמשך")}

@@ -48,6 +48,59 @@ def validate_image_upload(filename: str, content_type: str | None, size: int) ->
         raise ValueError(f"Image too large (max {MAX_IMAGE_BYTES // (1024 * 1024)} MB)")
 
 
+def stable_key_from_upload_object_name(name: str) -> str:
+    """Derive a product stable_key from a Storage object under uploads/."""
+    match = re.match(r"^[0-9a-f]{12}_(.+)$", name, re.IGNORECASE)
+    base_name = match.group(1) if match else name
+    return Path(base_name).stem.lower()
+
+
+async def list_orphan_tenant_uploads(
+    tenant_id: str,
+    linked_paths: set[str],
+) -> list[tuple[str, str]]:
+    """Return (storage_path, object_name) for upload images not linked to products."""
+    try:
+        from app.core.supabase import get_supabase
+
+        supabase = get_supabase()
+        prefix = f"{tenant_id}/uploads"
+
+        def _list() -> list:
+            return supabase.storage.from_(BUCKET).list(prefix)
+
+        entries = await asyncio.to_thread(_list)
+    except Exception as exc:
+        logger.warning("unable to list tenant uploads for tenant=%s: %s", tenant_id, exc)
+        return []
+
+    orphans: list[tuple[str, str]] = []
+    for entry in entries or []:
+        name = getattr(entry, "name", None) or (entry.get("name") if isinstance(entry, dict) else None)
+        if not name or name.endswith("/"):
+            continue
+        storage_path = f"{prefix}/{name}"
+        if storage_path in linked_paths:
+            continue
+        orphans.append((storage_path, name))
+    return orphans
+
+
+async def public_url_for_storage_path(storage_path: str) -> str | None:
+    try:
+        from app.core.supabase import get_supabase
+
+        supabase = get_supabase()
+
+        def _url() -> str:
+            return supabase.storage.from_(BUCKET).get_public_url(storage_path)
+
+        return await asyncio.to_thread(_url)
+    except Exception as exc:
+        logger.warning("unable to resolve public url for %s: %s", storage_path, exc)
+        return None
+
+
 async def upload_owner_image(
     tenant_id: str,
     filename: str,

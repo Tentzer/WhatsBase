@@ -22,6 +22,7 @@ interface ApiClient {
   getBusinessInfo: () => Promise<BusinessInfoBlock[]>;
   saveBusinessInfo: (payload: BusinessInfoBlock[]) => Promise<BusinessInfoBlock[]>;
   getProducts: () => Promise<ProductDraft[]>;
+  syncProductsFromUploads: () => Promise<ProductDraft[]>;
   saveProducts: (products: ProductDraft[]) => Promise<ProductDraft[]>;
   createImageDraft: (file: File) => Promise<ProductImageDraft>;
   connectWhatsApp: (payload: WhatsAppConnectRequest) => Promise<WhatsAppConnection>;
@@ -372,6 +373,25 @@ const realApi: ApiClient = {
         image?: { file_name?: string | null; storage_path: string; public_url?: string | null } | null;
       }>
     >("/api/products");
+    return res.map((item) => mapApiProductToDraft(item));
+  },
+  syncProductsFromUploads: async (): Promise<ProductDraft[]> => {
+    const res = await requestJson<
+      Array<{
+        id: string;
+        stable_key: string;
+        name_he: string;
+        name_en: string;
+        category: string;
+        price: number;
+        currency: "ILS";
+        in_stock: boolean;
+        colors: string;
+        materials: string;
+        style: string;
+        image?: { file_name?: string | null; storage_path: string; public_url?: string | null } | null;
+      }>
+    >("/api/products/sync-uploads", { method: "POST" });
     return res.map((item) => mapApiProductToDraft(item));
   },
   saveProducts: async (products: ProductDraft[]) => {

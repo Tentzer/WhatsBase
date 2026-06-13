@@ -24,11 +24,59 @@ from app.api.schemas import (
 from app.core.config import get_settings
 from app.core.crypto import encrypt_token
 from app.core.db import get_session
-from app.core.product_images import upload_owner_image
+from app.core.product_images import (
+    list_orphan_tenant_uploads,
+    public_url_for_storage_path,
+    stable_key_from_upload_object_name,
+    upload_owner_image,
+)
 from app.core.schema import BusinessInfo, Product, ProductImage, Tenant, User, WhatsAppInstance
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["onboarding"])
+
+
+async def _product_responses_for_tenant(
+    session: AsyncSession,
+    tenant_id: str,
+) -> list[ProductResponse]:
+    result = await session.execute(
+        select(Product).where(Product.tenant_id == tenant_id).order_by(Product.created_at.asc())
+    )
+    products = result.scalars().all()
+    responses: list[ProductResponse] = []
+    for product in products:
+        image_result = await session.execute(
+            select(ProductImage)
+            .where(ProductImage.product_id == product.id)
+            .order_by(ProductImage.created_at.asc())
+        )
+        image = image_result.scalars().first()
+        responses.append(
+            ProductResponse(
+                id=product.id,
+                stable_key=product.stable_key,
+                name_he=product.name_he or "",
+                name_en=product.name_en or "",
+                category=product.category or "",
+                price=float(product.price or 0),
+                currency=product.currency,
+                in_stock=product.in_stock,
+                colors=str((product.attributes or {}).get("colors", "")),
+                materials=str((product.attributes or {}).get("materials", "")),
+                style=str((product.attributes or {}).get("style", "")),
+                image=(
+                    None
+                    if image is None
+                    else {
+                        "file_name": None,
+                        "storage_path": image.storage_path,
+                        "public_url": image.public_url,
+                    }
+                ),
+            )
+        )
+    return responses
 
 
 @router.get("/debug")
@@ -197,43 +245,67 @@ async def get_products(
     session: AsyncSession = Depends(get_session),
 ) -> list[ProductResponse]:
     tenant_id = require_tenant(ctx)
-    result = await session.execute(
-        select(Product).where(Product.tenant_id == tenant_id).order_by(Product.created_at.asc())
+    return await _product_responses_for_tenant(session, tenant_id)
+
+
+@router.post("/products/sync-uploads", response_model=list[ProductResponse])
+async def sync_products_from_uploads(
+    ctx: AuthContext = Depends(get_auth_context),
+    session: AsyncSession = Depends(get_session),
+) -> list[ProductResponse]:
+    """Create product rows for photos already uploaded to Storage but not yet saved."""
+    tenant_id = require_tenant(ctx)
+
+    linked_result = await session.execute(
+        select(ProductImage.storage_path)
+        .join(Product, Product.id == ProductImage.product_id)
+        .where(Product.tenant_id == tenant_id)
     )
-    products = result.scalars().all()
-    responses: list[ProductResponse] = []
-    for product in products:
-        image_result = await session.execute(
-            select(ProductImage)
-            .where(ProductImage.product_id == product.id)
-            .order_by(ProductImage.created_at.asc())
+    linked_paths = {row[0] for row in linked_result.all() if row[0]}
+
+    orphans = await list_orphan_tenant_uploads(tenant_id, linked_paths)
+    if orphans:
+        existing_keys_result = await session.execute(
+            select(Product.stable_key).where(Product.tenant_id == tenant_id)
         )
-        image = image_result.scalars().first()
-        responses.append(
-            ProductResponse(
-                id=product.id,
-                stable_key=product.stable_key,
-                name_he=product.name_he or "",
-                name_en=product.name_en or "",
-                category=product.category or "",
-                price=float(product.price or 0),
-                currency=product.currency,
-                in_stock=product.in_stock,
-                colors=str((product.attributes or {}).get("colors", "")),
-                materials=str((product.attributes or {}).get("materials", "")),
-                style=str((product.attributes or {}).get("style", "")),
-                image=(
-                    None
-                    if image is None
-                    else {
-                        "file_name": None,
-                        "storage_path": image.storage_path,
-                        "public_url": image.public_url,
-                    }
-                ),
+        used_keys = {row[0] for row in existing_keys_result.all() if row[0]}
+
+        for storage_path, storage_name in orphans:
+            stable_key = stable_key_from_upload_object_name(storage_name)
+            suffix = 1
+            base_key = stable_key
+            while stable_key in used_keys:
+                stable_key = f"{base_key}-{suffix}"
+                suffix += 1
+            used_keys.add(stable_key)
+
+            product = Product(
+                tenant_id=tenant_id,
+                stable_key=stable_key,
+                currency="ILS",
+                in_stock=True,
+                source="owner_input",
             )
+            session.add(product)
+            await session.flush()
+
+            public_url = await public_url_for_storage_path(storage_path)
+            session.add(
+                ProductImage(
+                    product_id=product.id,
+                    storage_path=storage_path,
+                    public_url=public_url,
+                )
+            )
+
+        await session.commit()
+        logger.info(
+            "sync_products_from_uploads: tenant=%s created %d product row(s)",
+            tenant_id,
+            len(orphans),
         )
-    return responses
+
+    return await _product_responses_for_tenant(session, tenant_id)
 
 
 @router.post("/products", response_model=list[ProductResponse])
