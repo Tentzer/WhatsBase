@@ -20,13 +20,24 @@ async function pollBuildRun(
   onUpdate: (run: BuildRun) => void,
 ): Promise<BuildRun> {
   const deadline = Date.now() + POLL_TIMEOUT_MS;
+  let consecutiveErrors = 0;
   while (Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
-    const updated = await api.getBuildRun(buildRunId);
-    if (!updated) continue;
-    onUpdate(updated);
-    if (updated.status === "passed" || updated.status === "failed") {
-      return updated;
+    try {
+      const updated = await api.getBuildRun(buildRunId);
+      consecutiveErrors = 0;
+      if (!updated) continue;
+      onUpdate(updated);
+      if (updated.status === "passed" || updated.status === "failed") {
+        return updated;
+      }
+    } catch (err) {
+      consecutiveErrors += 1;
+      if (consecutiveErrors >= 8) {
+        throw err instanceof Error
+          ? err
+          : new Error("Build status polling failed — refresh the page to see the latest run");
+      }
     }
   }
   throw new Error("Build timed out — check Railway worker logs and retry");

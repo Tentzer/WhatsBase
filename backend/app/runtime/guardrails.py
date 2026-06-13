@@ -121,9 +121,30 @@ Tools: use search_products to find products; get_business_info for hours/locatio
 send_product_cards to show a customer specific products (photo, name, price); handoff_to_human to escalate."""
 
 
+# --------------------------------------------------------------------------- #
+# Voice / tone. Tenant-agnostic, so it lives here (applied to every turn via
+# system_preamble) rather than in each tenant's generated system_prompt —
+# iterating on tone must not require rebuilding every tenant. Not a guardrail:
+# no invariant-#8 mirror obligation.
+# --------------------------------------------------------------------------- #
+RUNTIME_VOICE = """\
+VOICE — sound like a real person on WhatsApp:
+- Warm, friendly, and concise. Keep it short, like texting — usually 1-3 sentences.
+- Conversational, not corporate. Skip formal openings ("Dear customer") and robotic phrasing ("I am unable to assist with that request"). Talk like a helpful shop assistant who knows the products.
+- Mirror the customer's register, not just their language: casual gets casual, formal gets a touch more formal.
+- Hebrew must read as natural, idiomatic Hebrew — the way an Israeli salesperson actually writes on WhatsApp — never stiff or translated-sounding. Everyday phrasing over formal constructions.
+- A single well-placed emoji is fine when it fits; don't overdo it. Lead with the useful answer, pleasantries second.
+- When a customer asks about a specific product or its price, state the key fact — the product name and price (and stock, if relevant) — in your TEXT reply, even when you also send a card. The card supports the message; it never replaces the answer.
+- When you show product cards, always write a short line of text with them — never end your reply with only cards and no words.
+- When you don't know something, say so plainly and offer the next step (search, business info, or a human) — don't apologize repeatedly."""
+
+
 def system_preamble(lang: str, now_str: str) -> str:
-    """Runtime guardrail block appended to the tenant system prompt each turn."""
-    return f"{RUNTIME_GUARDRAILS}\n\n{language_directive(lang)}\nCurrent date and time: {now_str}."
+    """Runtime guardrail + voice block appended to the tenant system prompt each turn."""
+    return (
+        f"{RUNTIME_GUARDRAILS}\n\n{RUNTIME_VOICE}\n\n"
+        f"{language_directive(lang)}\nCurrent date and time: {now_str}."
+    )
 
 
 def fallback_reply(lang: str) -> str:
@@ -134,3 +155,30 @@ def fallback_reply(lang: str) -> str:
         "Sorry, I couldn't complete that just now. Could you rephrase, "
         "or I can connect you with a human?"
     )
+
+
+def _format_price(price: float, currency: str | None) -> str:
+    """₪3,990 for ILS, else '3,990 ILS'. Comma thousands; drop a .0 tail."""
+    n = int(price) if float(price).is_integer() else price
+    amount = f"{n:,}"
+    cur = (currency or "").upper()
+    return f"₪{amount}" if cur in ("ILS", "NIS") else f"{amount} {cur}".strip()
+
+
+def cards_only_reply(lang: str, cards) -> str:
+    """Neutral line when the agent sent product cards but no text of its own — the
+    turn succeeded, so don't fire the apologetic fallback after a card. Carries the
+    card's name + price so the answer is never missing even on a silent turn."""
+    parts = []
+    for c in cards[:3]:
+        name = ((c.name_he if lang == "he" else c.name_en) or c.name_en or c.name_he or "").strip()
+        if name and c.price is not None:
+            parts.append(f"{name} — {_format_price(c.price, c.currency)}")
+        elif name:
+            parts.append(name)
+    listing = "; ".join(parts)
+    if not listing:
+        return "הנה מה שמצאתי 🙂 אפשר לעזור בעוד משהו?" if lang == "he" else "Here's what I found 🙂 Anything else I can help with?"
+    if lang == "he":
+        return f"{listing}. רוצה עוד פרטים?"
+    return f"{listing}. Want more details?"

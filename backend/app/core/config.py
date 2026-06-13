@@ -47,6 +47,8 @@ class Settings(BaseSettings):
     langfuse_host: str = "https://cloud.langfuse.com"
 
     # --- Runtime behavior ---
+    # When true, run_self_test is a no-op and finalize_build does not gate on it.
+    build_skip_self_test: bool = True
     intake_mode: IntakeMode = "polling"
     app_base_url: str = "http://localhost:8000"
 

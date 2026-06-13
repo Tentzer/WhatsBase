@@ -480,12 +480,16 @@ const realApi: ApiClient = {
     return mapBuildRunFromApi(res);
   },
   getBuildRun: async (buildRunId: string): Promise<BuildRun | undefined> => {
-    const res = await requestJson<ApiBuildRun>(`/api/build-runs/${buildRunId}`);
+    const res = await requestJson<ApiBuildRun>(`/api/build-runs/${buildRunId}`, {
+      timeoutMs: 30000,
+    });
     activeBuildRunId = res.id;
     return mapBuildRunFromApi(res);
   },
   getLatestBuildRun: async (): Promise<BuildRun | undefined> => {
-    const res = await requestJson<ApiBuildRun | null>("/api/build-runs/latest");
+    const res = await requestJson<ApiBuildRun | null>("/api/build-runs/latest", {
+      timeoutMs: 30000,
+    });
     if (!res) return undefined;
     activeBuildRunId = res.id;
     return mapBuildRunFromApi(res);

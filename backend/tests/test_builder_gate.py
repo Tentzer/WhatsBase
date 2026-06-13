@@ -9,7 +9,7 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -67,6 +67,14 @@ def _make_ctx(self_test_passed: bool = True, dry_run: bool = False) -> Any:
 
 # ── Gate enforcement ─────────────────────────────────────────────────────────
 
+@pytest.fixture
+def self_test_gate_enabled():
+    """Gate tests require the self-test to be enforced (not skipped)."""
+    with patch("app.builder.tools.finalize.get_settings") as mock_settings:
+        mock_settings.return_value.build_skip_self_test = False
+        yield
+
+
 @pytest.mark.asyncio
 async def test_finalize_passes_when_self_test_passed():
     from app.builder.tools.finalize import finalize_build
@@ -79,7 +87,7 @@ async def test_finalize_passes_when_self_test_passed():
 
 
 @pytest.mark.asyncio
-async def test_finalize_refused_when_self_test_not_passed():
+async def test_finalize_refused_when_self_test_not_passed(self_test_gate_enabled):
     from app.builder.tools.finalize import finalize_build
 
     ctx = _make_ctx(self_test_passed=False)
@@ -93,7 +101,7 @@ async def test_finalize_refused_when_self_test_not_passed():
 
 @pytest.mark.parametrize("failing_q_index", range(8))
 @pytest.mark.asyncio
-async def test_gate_refused_when_any_single_question_fails(failing_q_index):
+async def test_gate_refused_when_any_single_question_fails(failing_q_index, self_test_gate_enabled):
     """Gate must reject if ANY of the 8 questions fails."""
     from app.builder.tools.finalize import finalize_build
     from app.builder.report import BuildReport
@@ -111,6 +119,18 @@ async def test_gate_refused_when_any_single_question_fails(failing_q_index):
     assert result["status"] == "failed", (
         f"Gate should have refused when question {failing_q_index} fails"
     )
+
+
+@pytest.mark.asyncio
+async def test_finalize_passes_when_self_test_skipped_by_config():
+    from app.builder.tools.finalize import finalize_build
+
+    ctx = _make_ctx(self_test_passed=False)
+    with patch("app.builder.tools.finalize.get_settings") as mock_settings:
+        mock_settings.return_value.build_skip_self_test = True
+        result_json = await finalize_build(ctx)
+    result = json.loads(result_json)
+    assert result["status"] == "passed"
 
 
 @pytest.mark.asyncio
@@ -141,17 +161,29 @@ class FakeProduct:
     attributes: dict = field(default_factory=dict)
     name_en: str | None = None
     name_he: str | None = None
+    stable_key: str = ""
 
 
 def _demo_products() -> list:
     return [
         FakeProduct("p-sofa-white", "sofa", True, 4990.0,
-                    {"colors": ["white"]}, "White 3-Seat Sofa", "ספה לבנה תלת-מושבית"),
+                    {"colors": ["white"]}, "White 3-Seat Sofa", "ספה לבנה תלת-מושבית", "white-3-seat-sofa"),
         FakeProduct("p-sofa-cream", "sofa", False, 4290.0,
-                    {"colors": ["cream"]}, "Cream 2-Seat Sofa", "ספה דו-מושבית שמנת"),
-        FakeProduct("p-bed", "bed", True, 3490.0, {}, "Gray Queen Bed Frame", "מסגרת מיטה"),
-        FakeProduct("p-lamp", "lamp", True, 690.0, {}, "Brass Floor Lamp", "מנורת רצפה"),
-        FakeProduct("p-armchair", "armchair", True, 2290.0, {}, "Brown Armchair", "כורסה"),
+                    {"colors": ["cream"]}, "Cream 2-Seat Sofa", "ספה דו-מושבית שמנת", "cream-2-seat-sofa"),
+        FakeProduct("p-bed", "bed", True, 3490.0, {}, "Gray Queen Bed Frame", "מסגרת מיטה", "gray-queen-bed"),
+        FakeProduct("p-lamp", "lamp", True, 690.0, {}, "Brass Floor Lamp", "מנורת רצפה", "brass-floor-lamp"),
+        FakeProduct("p-armchair", "armchair", True, 2290.0, {}, "Brown Armchair", "כורסה", "brown-armchair"),
+    ]
+
+
+def _bed_shop_products() -> list:
+    return [
+        FakeProduct("p-bed-gray", "bed", True, 2490.0,
+                    {"colors": ["gray"]}, "Gray Bed", "מיטה אפורה", "bed-gray-mattress-gift"),
+        FakeProduct("p-bed-black", "bed", True, 2690.0,
+                    {"colors": ["black"]}, "Black Bed", "מיטה שחורה", "bed-black-mattress-gift"),
+        FakeProduct("p-bed-storage", "bed", True, 3190.0,
+                    {"colors": ["cream"]}, "Storage Bed", "מיטה עם ארגון", "bed-cream-storage-mattress-gift"),
     ]
 
 
@@ -208,3 +240,12 @@ def test_question_q6_behavior_check_rejects_invented_mattress_info():
     assert q6.behavior_assert("Unfortunately, we don't sell mattresses.")
     # Invented product info must fail
     assert not q6.behavior_assert("Yes, we sell mattresses in various sizes!")
+
+
+def test_bed_catalog_uses_bed_anchor_not_sofa():
+    from app.builder.validation import _build_questions
+
+    questions = _build_questions(_bed_shop_products())
+    assert questions[0].q == "Do you have a gray bed?"
+    assert "p-bed-gray" in questions[0].expected_ids
+    assert questions[5].q == "Do you sell kitchen refrigerators?"

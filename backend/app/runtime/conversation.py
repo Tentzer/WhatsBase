@@ -126,7 +126,11 @@ async def run_turn(
         messages.append({"role": "user", "content": tool_results})
 
     if not reply_text:
-        reply_text = guardrails.fallback_reply(lang)
+        # A card-only turn still succeeded — use a neutral line, not the apology.
+        reply_text = (
+            guardrails.cards_only_reply(lang, ctx.cards) if ctx.cards
+            else guardrails.fallback_reply(lang)
+        )
 
     # Price honesty (rules 2/3): a currency-adjacent figure not backed by a tool
     # result means the model invented it — replace with a safe fallback and log.

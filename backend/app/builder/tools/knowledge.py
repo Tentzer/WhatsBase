@@ -27,17 +27,30 @@ async def generate_system_prompt(ctx: BuildContext, draft: str) -> str:
     """Compose and persist the tenant's system prompt from the build draft."""
     session = ctx.session
 
-    # Get business name from tenant row.
+    # Get business name + description from tenant row.
     tenant_result = await session.execute(
         select(Tenant).where(Tenant.id == ctx.tenant_id)
     )
     tenant = tenant_result.scalar_one_or_none()
-    business_name = tenant.name if tenant else "the business"
+    business_name = tenant.name if tenant and tenant.name else "the business"
 
-    # Summarize business info items.
+    # Tenant.description drives identity. Trailing space when present so the
+    # opening sentence flows; empty string when null/blank (graceful degrade).
+    raw_desc = ((tenant.description if tenant else None) or "").strip()
+    business_description = f"{raw_desc} " if raw_desc else ""
+
+    # Bilingual business info: feed BOTH languages so the agent answers
+    # hours/location/policy idiomatically in either. Per-field fallback when
+    # only one language is present.
     biz_lines = []
     for item in ctx.business_info_items:
-        biz_lines.append(f"  [{item.topic}] {item.content_en}")
+        en = (item.content_en or "").strip()
+        he = (item.content_he or "").strip()
+        biz_lines.append(f"  [{item.topic}]")
+        if en:
+            biz_lines.append(f"    EN: {en}")
+        if he:
+            biz_lines.append(f"    HE: {he}")
     business_summary = "\n".join(biz_lines) if biz_lines else "(no business info provided)"
 
     # Summarize catalog from products already in DB.
@@ -46,12 +59,29 @@ async def generate_system_prompt(ctx: BuildContext, draft: str) -> str:
     )
     products = products_result.scalars().all()
     categories = sorted({p.category for p in products if p.category})
-    catalog_summary = f"{len(products)} products across categories: {', '.join(categories)}"
+    catalog_summary = (
+        f"{len(products)} products across categories: {', '.join(categories)}"
+        if categories
+        else f"{len(products)} products."
+    )
+
+    # A few real product names ground the catalog without hardcoding examples.
+    sample_names = [n for n in
+                    ((p.name_en or p.name_he or "").strip() for p in products) if n][:5]
+    catalog_examples = (
+        f"Examples from the catalog: {', '.join(sample_names)}.\n" if sample_names else ""
+    )
+
+    # Escape literal braces so tenant free-text can't break str.format().
+    def _esc(s: str) -> str:
+        return s.replace("{", "{{").replace("}", "}}")
 
     system_prompt = render_conversation_prompt(
-        business_name=business_name,
-        business_summary=business_summary,
-        catalog_summary=catalog_summary,
+        business_name=_esc(business_name),
+        business_description=_esc(business_description),
+        business_summary=_esc(business_summary),
+        catalog_summary=_esc(catalog_summary),
+        catalog_examples=_esc(catalog_examples),
     )
 
     if ctx.dry_run:

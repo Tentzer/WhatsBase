@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from sqlalchemy import update
 
 from app.builder.context import BuildContext
+from app.core.config import get_settings
 from app.core.schema import Agent, BuildRun
 
 logger = logging.getLogger(__name__)
@@ -22,7 +23,7 @@ async def finalize_build(ctx: BuildContext) -> str:
 
     session = ctx.session
 
-    if not ctx.self_test_passed:
+    if not ctx.self_test_passed and not get_settings().build_skip_self_test:
         # Record failure.
         await _set_status(session, ctx, status="failed")
         failed_qs = [

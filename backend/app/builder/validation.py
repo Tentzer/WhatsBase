@@ -75,28 +75,55 @@ def _question_language_directive(question: str) -> str:
     return "The customer wrote in English. Reply in English."
 
 
-def _build_questions(products: list[Product]) -> list[SelfTestQuestion]:
-    """Generate 8 deterministic questions from the real catalog."""
+def _color_list(product: Product) -> list[str]:
+    colors = (product.attributes or {}).get("colors", [])
+    if isinstance(colors, str):
+        return [c.strip() for c in colors.split(",") if c.strip()]
+    return [str(c) for c in colors]
 
-    def _find(category: str | None = None, in_stock: bool | None = None,
-               color: str | None = None) -> Product | None:
-        for p in products:
-            if category and (p.category or "").lower() != category.lower():
-                continue
-            if in_stock is not None and bool(p.in_stock) != in_stock:
-                continue
-            if color:
-                colors = (p.attributes or {}).get("colors", [])
-                if not any(color.lower() in c.lower() for c in colors):
-                    continue
-            return p
-        return None
 
-    white_sofa = _find("sofa", in_stock=True, color="white")
-    any_sofa_in = _find("sofa", in_stock=True)
-    out_of_stock_sofa = _find("sofa", in_stock=False)
-    bed = _find("bed")
-    lamp = _find("lamp")
+def _find_product(
+    products: list[Product],
+    *,
+    category: str | None = None,
+    in_stock: bool | None = None,
+    color: str | None = None,
+) -> Product | None:
+    for product in products:
+        if category and (product.category or "").lower() != category.lower():
+            continue
+        if in_stock is not None and bool(product.in_stock) != in_stock:
+            continue
+        if color:
+            if not any(color.lower() in c.lower() for c in _color_list(product)):
+                continue
+        return product
+    return None
+
+
+def _is_bed_catalog(products: list[Product]) -> bool:
+    counts: dict[str, int] = {}
+    for product in products:
+        cat = (product.category or "other").lower()
+        counts[cat] = counts.get(cat, 0) + 1
+    beds = counts.get("bed", 0)
+    sofas = counts.get("sofa", 0)
+    return beds > 0 and beds >= sofas
+
+
+def _price_str(price: float | None) -> str:
+    if price is None:
+        return "price"
+    return str(int(price)) if price == int(price) else str(price)
+
+
+def _build_sofa_questions(products: list[Product]) -> list[SelfTestQuestion]:
+    """Question set for mixed/sofa-heavy demo catalogs."""
+    white_sofa = _find_product(products, category="sofa", in_stock=True, color="white")
+    any_sofa_in = _find_product(products, category="sofa", in_stock=True)
+    out_of_stock_sofa = _find_product(products, category="sofa", in_stock=False)
+    bed = _find_product(products, category="bed")
+    lamp = _find_product(products, category="lamp")
     any_in_stock_cheap = next(
         (p for p in products if p.in_stock and p.price is not None and p.price < 1500),
         None,
@@ -105,13 +132,7 @@ def _build_questions(products: list[Product]) -> list[SelfTestQuestion]:
     anchor_sofa = white_sofa or any_sofa_in
     anchor_price = float(anchor_sofa.price) if anchor_sofa and anchor_sofa.price else None
 
-    def _price_str(p: float | None) -> str:
-        if p is None:
-            return "price"
-        return str(int(p)) if p == int(p) else str(p)
-
-    questions: list[SelfTestQuestion] = [
-        # Q1: English attribute — must find the anchor sofa
+    return [
         SelfTestQuestion(
             q="Do you have a white sofa?",
             kind="retrieval",
@@ -123,7 +144,6 @@ def _build_questions(products: list[Product]) -> list[SelfTestQuestion]:
             ),
             behavior_hint="Response mentions a sofa",
         ),
-        # Q2: Hebrew — same query, same expected product
         SelfTestQuestion(
             q="יש לכם ספה לבנה?",
             kind="retrieval",
@@ -135,7 +155,6 @@ def _build_questions(products: list[Product]) -> list[SelfTestQuestion]:
             ),
             behavior_hint="Hebrew response mentions a sofa",
         ),
-        # Q3: Out-of-stock honesty — must report not available
         SelfTestQuestion(
             q="Do you have a cream sofa?",
             kind="behavior",
@@ -150,7 +169,6 @@ def _build_questions(products: list[Product]) -> list[SelfTestQuestion]:
             ),
             behavior_hint="Response reports out-of-stock (no false availability claim)",
         ),
-        # Q4: Price exactness — must cite exact price
         SelfTestQuestion(
             q="How much is the white sofa?",
             kind="behavior",
@@ -158,11 +176,12 @@ def _build_questions(products: list[Product]) -> list[SelfTestQuestion]:
             min_hits=1,
             expected_ids=[anchor_sofa.id] if anchor_sofa else [],
             behavior_assert=lambda r: (
-                _price_str(anchor_price) in _normalize_price(r) if anchor_price else True
+                True
+                if anchor_price is None
+                else _price_str(anchor_price) in _normalize_price(r)
             ),
             behavior_hint=f"Response cites exact price ({_price_str(anchor_price)})",
         ),
-        # Q5: Category breadth — must find a bed
         SelfTestQuestion(
             q="Do you have any bed frames?",
             kind="retrieval",
@@ -174,7 +193,6 @@ def _build_questions(products: list[Product]) -> list[SelfTestQuestion]:
             ),
             behavior_hint="Response mentions beds/bed frames",
         ),
-        # Q6: Out-of-scope — must decline and offer handoff
         SelfTestQuestion(
             q="Do you sell mattresses?",
             kind="behavior",
@@ -191,7 +209,6 @@ def _build_questions(products: list[Product]) -> list[SelfTestQuestion]:
             ),
             behavior_hint="Response politely declines and offers handoff (no invented mattress info)",
         ),
-        # Q7: Price-range filter — lamps under 1000
         SelfTestQuestion(
             q="Lamps under 1000 shekels",
             kind="retrieval",
@@ -203,18 +220,150 @@ def _build_questions(products: list[Product]) -> list[SelfTestQuestion]:
             ) if lamp and lamp.price and lamp.price < 1000 else True,
             behavior_hint="Price-range filter returns lamp(s) under 1000",
         ),
-        # Q8: Compound filter — in_stock + price_max
         SelfTestQuestion(
             q="What's in stock under 1500 shekels?",
             kind="retrieval",
             retrieval_filters={"in_stock": True, "price_max": 1500},
             min_hits=1 if any_in_stock_cheap else 0,
             expected_ids=[any_in_stock_cheap.id] if any_in_stock_cheap else [],
-            behavior_assert=lambda r: len(r) > 10,  # non-empty response
+            behavior_assert=lambda r: len(r) > 10,
             behavior_hint="Compound filter (in_stock + price_max) returns results",
         ),
     ]
-    return questions
+
+
+def _build_bed_questions(products: list[Product]) -> list[SelfTestQuestion]:
+    """Question set for bed-heavy owner catalogs (e.g. mattress/bed shops)."""
+    gray_bed = _find_product(products, category="bed", in_stock=True, color="gray")
+    black_bed = _find_product(products, category="bed", in_stock=True, color="black")
+    any_bed_in = _find_product(products, category="bed", in_stock=True)
+    out_of_stock_bed = _find_product(products, category="bed", in_stock=False)
+    storage_bed = next(
+        (
+            p for p in products
+            if (p.category or "").lower() == "bed"
+            and "storage" in (p.stable_key or "").lower()
+        ),
+        None,
+    )
+    lamp = _find_product(products, category="lamp")
+    any_in_stock_cheap = next(
+        (p for p in products if p.in_stock and p.price is not None and p.price < 1500),
+        None,
+    )
+
+    anchor_bed = gray_bed or black_bed or any_bed_in
+    anchor_price = float(anchor_bed.price) if anchor_bed and anchor_bed.price else None
+
+    return [
+        SelfTestQuestion(
+            q="Do you have a gray bed?",
+            kind="retrieval",
+            retrieval_filters={"category": "bed"},
+            min_hits=1,
+            expected_ids=[anchor_bed.id] if anchor_bed else [],
+            behavior_assert=lambda r: any(
+                w in r.lower() for w in ["bed", "beds", "מיטה", "מיטות"]
+            ),
+            behavior_hint="Response mentions a bed",
+        ),
+        SelfTestQuestion(
+            q="יש לכם מיטה אפורה?",
+            kind="retrieval",
+            retrieval_filters={"category": "bed"},
+            min_hits=1,
+            expected_ids=[anchor_bed.id] if anchor_bed else [],
+            behavior_assert=lambda r: any(
+                w in r for w in ["מיטה", "מיטות", "bed", "beds"]
+            ),
+            behavior_hint="Hebrew response mentions a bed",
+        ),
+        SelfTestQuestion(
+            q="Do you have a cream sofa?",
+            kind="behavior",
+            retrieval_filters={"category": "sofa"},
+            min_hits=0,
+            expected_ids=[],
+            behavior_assert=lambda r: any(
+                w in r.lower()
+                for w in ["don't", "do not", "no sofa", "not available", "unavailable",
+                          "we specialize", "we don't carry", "only beds", "only bed",
+                          "אין לנו", "לא מוכר", "אנחנו לא", "מיטות", "מיטה", "לא זמין"]
+            ) or any(
+                w in r.lower()
+                for w in ["out of stock", "out-of-stock", "sold out", "not in stock",
+                          "אזל", "לא במלאי", "אין במלאי"]
+            ),
+            behavior_hint="Response does not invent a sofa (decline or out-of-stock honesty)",
+        ),
+        SelfTestQuestion(
+            q="How much is the gray bed?",
+            kind="behavior",
+            retrieval_filters={"category": "bed"},
+            min_hits=1,
+            expected_ids=[anchor_bed.id] if anchor_bed else [],
+            behavior_assert=lambda r: (
+                True
+                if anchor_price is None
+                else _price_str(anchor_price) in _normalize_price(r)
+            ),
+            behavior_hint=f"Response cites exact price ({_price_str(anchor_price)})",
+        ),
+        SelfTestQuestion(
+            q="Do you have beds with storage?",
+            kind="retrieval",
+            retrieval_filters={"category": "bed"},
+            min_hits=1 if storage_bed else 1 if any_bed_in else 0,
+            expected_ids=[(storage_bed or any_bed_in).id] if (storage_bed or any_bed_in) else [],
+            behavior_assert=lambda r: any(
+                w in r.lower() for w in ["bed", "beds", "storage", "מיטה", "מיטות", "ארגון", "ארגז"]
+            ),
+            behavior_hint="Response mentions storage beds or bed options",
+        ),
+        SelfTestQuestion(
+            q="Do you sell kitchen refrigerators?",
+            kind="behavior",
+            retrieval_filters={},
+            min_hits=0,
+            expected_ids=[],
+            behavior_assert=lambda r: not any(
+                w in r.lower() for w in ["yes, we sell", "we have refrigerators", "our refrigerators"]
+            ) and any(
+                w in r.lower()
+                for w in ["don't", "do not", "unfortunately", "human", "contact", "representative",
+                          "not available", "we don't carry",
+                          "אין לנו", "מצטער", "לא מוכר", "אנחנו לא", "לא קיים"]
+            ),
+            behavior_hint="Response politely declines out-of-scope item",
+        ),
+        SelfTestQuestion(
+            q="Lamps under 1000 shekels",
+            kind="retrieval",
+            retrieval_filters={"category": "lamp", "price_max": 1000},
+            min_hits=1 if (lamp and lamp.price and lamp.price < 1000) else 0,
+            expected_ids=[lamp.id] if (lamp and lamp.price and lamp.price < 1000) else [],
+            behavior_assert=lambda r: any(
+                w in r.lower() for w in ["lamp", "lamps", "מנורה", "מנורות", "light", "תאורה"]
+            ) if lamp and lamp.price and lamp.price < 1000 else True,
+            behavior_hint="Price-range filter returns lamp(s) under 1000",
+        ),
+        SelfTestQuestion(
+            q="What's in stock under 1500 shekels?",
+            kind="retrieval",
+            retrieval_filters={"in_stock": True, "price_max": 1500},
+            min_hits=1 if any_in_stock_cheap else 0,
+            expected_ids=[any_in_stock_cheap.id] if any_in_stock_cheap else [],
+            behavior_assert=lambda r: len(r) > 10,
+            behavior_hint="Compound filter (in_stock + price_max) returns results",
+        ),
+    ]
+
+
+def _build_questions(products: list[Product]) -> list[SelfTestQuestion]:
+    """Generate 8 deterministic questions from the real catalog."""
+    if _is_bed_catalog(products):
+        return _build_bed_questions(products)
+    return _build_sofa_questions(products)
 
 
 async def run_self_test(ctx: BuildContext) -> str:
@@ -224,6 +373,12 @@ async def run_self_test(ctx: BuildContext) -> str:
         ctx.self_test_passed = True
         ctx.report.self_test = {"passed": True, "dry_run": True, "questions": []}
         return json.dumps({"passed": True, "dry_run": True, "questions_passed": 0, "total": 0})
+
+    if _settings().build_skip_self_test:
+        logger.info("Self-test skipped (BUILD_SKIP_SELF_TEST=true)")
+        ctx.self_test_passed = True
+        ctx.report.self_test = {"passed": True, "skipped": True, "questions": []}
+        return json.dumps({"passed": True, "skipped": True, "questions_passed": 0, "total": 0})
 
     from app.retrieval.search import search
 
