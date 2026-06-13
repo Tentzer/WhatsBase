@@ -21,6 +21,7 @@ from app.api.schemas import (
     TestChatMessageResponse,
     TestChatRequest,
     TestChatResponse,
+    ClearTestChatResponse,
 )
 from app.core.db import get_session
 from app.core.models import get_model
@@ -816,12 +817,10 @@ async def get_test_chat_history(
     return history
 
 
-@router.delete("/test-chat/history", status_code=204)
-async def clear_test_chat_history(
-    ctx: AuthContext = Depends(get_auth_context),
-    session: AsyncSession = Depends(get_session),
-) -> None:
-    tenant_id = require_tenant(ctx)
+async def _clear_test_chat_messages(
+    session: AsyncSession,
+    tenant_id: str,
+) -> int:
     result = await session.execute(
         select(Conversation).where(
             Conversation.tenant_id == tenant_id,
@@ -830,10 +829,32 @@ async def clear_test_chat_history(
     )
     conversation = result.scalar_one_or_none()
     if conversation is None:
-        return None
+        return 0
 
-    await session.execute(
+    delete_result = await session.execute(
         delete(Message).where(Message.conversation_id == conversation.id)
     )
+    deleted_count = int(delete_result.rowcount or 0)
     conversation.last_message_at = None
     await session.commit()
+    return deleted_count
+
+
+@router.post("/test-chat/clear", response_model=ClearTestChatResponse)
+async def clear_test_chat_history_post(
+    ctx: AuthContext = Depends(get_auth_context),
+    session: AsyncSession = Depends(get_session),
+) -> ClearTestChatResponse:
+    tenant_id = require_tenant(ctx)
+    deleted = await _clear_test_chat_messages(session, tenant_id)
+    return ClearTestChatResponse(deleted=deleted)
+
+
+@router.delete("/test-chat/history", response_model=ClearTestChatResponse)
+async def clear_test_chat_history(
+    ctx: AuthContext = Depends(get_auth_context),
+    session: AsyncSession = Depends(get_session),
+) -> ClearTestChatResponse:
+    tenant_id = require_tenant(ctx)
+    deleted = await _clear_test_chat_messages(session, tenant_id)
+    return ClearTestChatResponse(deleted=deleted)

@@ -38,7 +38,7 @@ interface ApiClient {
   getLangfuseAnalytics: () => Promise<LangfuseAnalytics>;
   sendTestChatMessage: (text: string) => Promise<TestChatResponse>;
   getTestChatHistory: () => Promise<TestChatMessage[]>;
-  clearTestChatHistory: () => Promise<void>;
+  clearTestChatHistory: () => Promise<number>;
   sendSetupAssistantMessage: (text: string) => Promise<TestChatResponse>;
   getSetupAssistantHistory: () => Promise<TestChatMessage[]>;
 }
@@ -546,8 +546,11 @@ const realApi: ApiClient = {
       cards: item.cards?.map(mapProductCard),
     }));
   },
-  clearTestChatHistory: async (): Promise<void> => {
-    await requestJson<void>("/api/test-chat/history", { method: "DELETE" });
+  clearTestChatHistory: async (): Promise<number> => {
+    const res = await requestJson<{ deleted: number }>("/api/test-chat/clear", {
+      method: "POST",
+    });
+    return res.deleted;
   },
   sendSetupAssistantMessage: async (text: string): Promise<TestChatResponse> => {
     const res = await requestJson<{

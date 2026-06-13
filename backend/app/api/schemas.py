@@ -183,3 +183,7 @@ class TestChatRequest(BaseModel):
 
 class TestChatResponse(BaseModel):
     reply: TestChatMessageResponse
+
+
+class ClearTestChatResponse(BaseModel):
+    deleted: int

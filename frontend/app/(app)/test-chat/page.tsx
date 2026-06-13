@@ -102,8 +102,16 @@ export default function TestChatPage() {
     setClearing(true);
     try {
       await api.clearTestChatHistory();
-      setMessages([]);
+      const history = await api.getTestChatHistory();
+      setMessages(history);
       initialScrollDone.current = false;
+    } catch (error) {
+      window.alert(
+        t(
+          `Could not clear chat: ${error instanceof Error ? error.message : String(error)}`,
+          `לא ניתן לנקות את הצ׳אט: ${error instanceof Error ? error.message : String(error)}`,
+        ),
+      );
     } finally {
       setClearing(false);
     }
