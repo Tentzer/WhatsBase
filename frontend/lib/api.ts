@@ -28,6 +28,7 @@ interface ApiClient {
   getWhatsAppStatus: () => Promise<WhatsAppConnection>;
   startBuild: () => Promise<BuildRun>;
   getBuildRun: (buildRunId: string) => Promise<BuildRun | undefined>;
+  getLatestBuildRun: () => Promise<BuildRun | undefined>;
   setBuildState: (
     status: BuildStatus,
     progressPct: number,
@@ -184,6 +185,44 @@ function mapProductCard(card: ApiProductCard) {
     price: Number(card.price || 0),
     currency: card.currency,
     category: card.category ?? undefined,
+  };
+}
+
+type ApiBuildRun = {
+  id: string;
+  status: BuildStatus;
+  current_step?: BuildRun["currentStep"] | null;
+  progress_pct: number;
+  report?: {
+    products_detected: number;
+    products_created: number;
+    assumptions: string[];
+    self_test: Array<{ question: string; answer_summary: string; passed: boolean }>;
+  } | null;
+  created_at: string;
+  updated_at: string;
+};
+
+function mapBuildRunFromApi(res: ApiBuildRun): BuildRun {
+  return {
+    id: res.id,
+    status: res.status,
+    currentStep: res.current_step ?? undefined,
+    progressPct: Number(res.progress_pct || 0),
+    report: res.report
+      ? {
+          productsDetected: Number(res.report.products_detected || 0),
+          productsCreated: Number(res.report.products_created || 0),
+          assumptions: res.report.assumptions ?? [],
+          selfTest: (res.report.self_test ?? []).map((item) => ({
+            question: item.question,
+            answerSummary: item.answer_summary,
+            passed: Boolean(item.passed),
+          })),
+        }
+      : undefined,
+    createdAt: res.created_at,
+    updatedAt: res.updated_at,
   };
 }
 
@@ -401,98 +440,27 @@ const realApi: ApiClient = {
     };
   },
   startBuild: async (): Promise<BuildRun> => {
-    const res = await requestJson<{
-      id: string;
-      status: BuildStatus;
-      current_step?: BuildRun["currentStep"] | null;
-      progress_pct: number;
-      report?: {
-        products_detected: number;
-        products_created: number;
-        assumptions: string[];
-        self_test: Array<{ question: string; answer_summary: string; passed: boolean }>;
-      } | null;
-      created_at: string;
-      updated_at: string;
-    }>("/api/build", { method: "POST" });
+    const res = await requestJson<ApiBuildRun>("/api/build", { method: "POST" });
     activeBuildRunId = res.id;
-    return {
-      id: res.id,
-      status: res.status,
-      currentStep: res.current_step ?? undefined,
-      progressPct: Number(res.progress_pct || 0),
-      report: res.report
-        ? {
-            productsDetected: Number(res.report.products_detected || 0),
-            productsCreated: Number(res.report.products_created || 0),
-            assumptions: res.report.assumptions ?? [],
-            selfTest: (res.report.self_test ?? []).map((item) => ({
-              question: item.question,
-              answerSummary: item.answer_summary,
-              passed: Boolean(item.passed),
-            })),
-          }
-        : undefined,
-      createdAt: res.created_at,
-      updatedAt: res.updated_at,
-    };
+    return mapBuildRunFromApi(res);
   },
   getBuildRun: async (buildRunId: string): Promise<BuildRun | undefined> => {
-    const res = await requestJson<{
-      id: string;
-      status: BuildStatus;
-      current_step?: BuildRun["currentStep"] | null;
-      progress_pct: number;
-      report?: {
-        products_detected: number;
-        products_created: number;
-        assumptions: string[];
-        self_test: Array<{ question: string; answer_summary: string; passed: boolean }>;
-      } | null;
-      created_at: string;
-      updated_at: string;
-    }>(`/api/build-runs/${buildRunId}`);
+    const res = await requestJson<ApiBuildRun>(`/api/build-runs/${buildRunId}`);
     activeBuildRunId = res.id;
-    return {
-      id: res.id,
-      status: res.status,
-      currentStep: res.current_step ?? undefined,
-      progressPct: Number(res.progress_pct || 0),
-      report: res.report
-        ? {
-            productsDetected: Number(res.report.products_detected || 0),
-            productsCreated: Number(res.report.products_created || 0),
-            assumptions: res.report.assumptions ?? [],
-            selfTest: (res.report.self_test ?? []).map((item) => ({
-              question: item.question,
-              answerSummary: item.answer_summary,
-              passed: Boolean(item.passed),
-            })),
-          }
-        : undefined,
-      createdAt: res.created_at,
-      updatedAt: res.updated_at,
-    };
+    return mapBuildRunFromApi(res);
+  },
+  getLatestBuildRun: async (): Promise<BuildRun | undefined> => {
+    const res = await requestJson<ApiBuildRun | null>("/api/build-runs/latest");
+    if (!res) return undefined;
+    activeBuildRunId = res.id;
+    return mapBuildRunFromApi(res);
   },
   setBuildState: async (status, progressPct, currentStep): Promise<BuildRun | undefined> => {
     const currentBuildId = activeBuildRunId;
     if (!currentBuildId) {
       return undefined;
     }
-    const res = await requestJson<{
-      id: string;
-      status: BuildStatus;
-      current_step?: BuildRun["currentStep"] | null;
-      progress_pct: number;
-      report?: {
-        products_detected: number;
-        products_created: number;
-        assumptions: string[];
-        self_test: Array<{ question: string; answer_summary: string; passed: boolean }>;
-      } | null;
-      created_at: string;
-      updated_at: string;
-    }>(`/api/build-runs/${currentBuildId}`, {
+    const res = await requestJson<ApiBuildRun>(`/api/build-runs/${currentBuildId}`, {
       method: "PATCH",
       body: {
         status,
@@ -500,26 +468,7 @@ const realApi: ApiClient = {
         current_step: currentStep ?? null,
       },
     });
-    return {
-      id: res.id,
-      status: res.status,
-      currentStep: res.current_step ?? undefined,
-      progressPct: Number(res.progress_pct || 0),
-      report: res.report
-        ? {
-            productsDetected: Number(res.report.products_detected || 0),
-            productsCreated: Number(res.report.products_created || 0),
-            assumptions: res.report.assumptions ?? [],
-            selfTest: (res.report.self_test ?? []).map((item) => ({
-              question: item.question,
-              answerSummary: item.answer_summary,
-              passed: Boolean(item.passed),
-            })),
-          }
-        : undefined,
-      createdAt: res.created_at,
-      updatedAt: res.updated_at,
-    };
+    return mapBuildRunFromApi(res);
   },
   getAgentStatus: async (): Promise<AgentStatus> => {
     const res = await requestJson<{ status: AgentStatus }>("/api/agents/status");

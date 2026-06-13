@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "@/components/navigation-progress";
 import { AlertTriangle, CheckCircle2, Loader2 } from "lucide-react";
 import { WizardStepper } from "@/components/wizard-stepper";
@@ -10,7 +10,7 @@ import { Progress } from "@/components/ui/progress";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api } from "@/lib/api";
 import { useLocale } from "@/lib/locale";
-import type { BuildRun } from "@/lib/types";
+import type { AgentStatus, BuildRun } from "@/lib/types";
 
 const POLL_INTERVAL_MS = 2500;
 const POLL_TIMEOUT_MS = 15 * 60 * 1000;
@@ -36,8 +36,32 @@ export default function BuildPage() {
   const navigate = useNavigate();
   const { t } = useLocale();
   const [run, setRun] = useState<BuildRun | null>(null);
+  const [agentStatus, setAgentStatus] = useState<AgentStatus | null>(null);
   const [running, setRunning] = useState(false);
+  const [hydrating, setHydrating] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const [status, latestRun] = await Promise.all([
+          api.getAgentStatus(),
+          api.getLatestBuildRun(),
+        ]);
+        setAgentStatus(status);
+        if (latestRun) {
+          setRun(latestRun);
+        }
+      } catch (err) {
+        console.error("Failed to load build page state:", err);
+      } finally {
+        setHydrating(false);
+      }
+    })();
+  }, []);
+
+  const isLive = agentStatus === "live" || run?.status === "passed";
+  const buildInProgress = running || run?.status === "running" || run?.status === "queued";
 
   const startBuild = async () => {
     setRunning(true);
@@ -48,6 +72,11 @@ export default function BuildPage() {
       setRun(started);
       const finalRun = await pollBuildRun(started.id, setRun);
       setRun(finalRun);
+      if (finalRun.status === "passed") {
+        setAgentStatus("live");
+      } else if (finalRun.status === "failed") {
+        setAgentStatus("failed");
+      }
       if (finalRun.status === "failed") {
         setError(
           t(
@@ -75,27 +104,55 @@ export default function BuildPage() {
     return map[run.currentStep];
   }, [run?.currentStep, t]);
 
+  const pageTitle = isLive
+    ? t("Rebuild agent", "בנייה מחדש")
+    : t("Build my agent", "בניית הסוכן");
+
+  const pageDescription = isLive
+    ? t(
+        "Your agent is live. Rebuild after updating products or business info.",
+        "הסוכן כבר בלייב. בנו מחדש אחרי עדכון מוצרים או פרטי עסק.",
+      )
+    : t(
+        "Run the builder flow and validate the tenant before go-live.",
+        "הרצת תהליך הבנייה ואימות לפני מעבר ללייב.",
+      );
+
+  const buildButtonLabel = running
+    ? t("Starting...", "מתחיל...")
+    : run?.status === "failed"
+      ? t("Retry build", "נסו שוב")
+      : isLive
+        ? t("Rebuild agent", "בנייה מחדש")
+        : t("Build my agent", "בנו את הסוכן");
+
+  if (hydrating) {
+    return (
+      <div className="flex min-h-[50vh] items-center justify-center">
+        <Loader2 className="size-5 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
   return (
     <div>
       <WizardStepper />
       <Card>
         <CardHeader>
-          <CardTitle>{t("Build my agent", "בניית הסוכן")}</CardTitle>
-          <CardDescription>
-            {t(
-              "Run the builder flow and validate the tenant before go-live.",
-              "הרצת תהליך הבנייה ואימות לפני מעבר ללייב.",
-            )}
-          </CardDescription>
+          <CardTitle>{pageTitle}</CardTitle>
+          <CardDescription>{pageDescription}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
-          {!run || run.status === "failed" ? (
+          {isLive && !buildInProgress ? (
+            <div className="flex items-center gap-2 rounded-md bg-emerald-50 p-3 text-sm text-emerald-800">
+              <CheckCircle2 className="size-4" />
+              {t("Your agent is live.", "הסוכן שלכם בלייב.")}
+            </div>
+          ) : null}
+
+          {!buildInProgress ? (
             <Button className="bg-emerald-600 hover:bg-emerald-700" onClick={startBuild} disabled={running}>
-              {running
-                ? t("Starting...", "מתחיל...")
-                : run?.status === "failed"
-                  ? t("Retry build", "נסו שוב")
-                  : t("Build my agent", "בנו את הסוכן")}
+              {buildButtonLabel}
             </Button>
           ) : null}
 

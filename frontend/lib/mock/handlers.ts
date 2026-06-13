@@ -222,6 +222,10 @@ export const mockApi = {
     return run;
   },
 
+  async getLatestBuildRun(): Promise<BuildRun | undefined> {
+    return loadState().buildRun;
+  },
+
   async setBuildState(status: BuildStatus, progressPct: number, currentStep?: BuildRun["currentStep"]) {
     advanceMockBuild(status, progressPct, currentStep);
     return loadState().buildRun;
