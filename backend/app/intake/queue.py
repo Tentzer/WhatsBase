@@ -27,6 +27,7 @@ class WorkerSettings:
 
     functions = [
         _tasks.process_incoming_message,
+        _tasks.run_agent_turn,
         _tasks.send_outgoing,
         _tasks.run_build,
     ]

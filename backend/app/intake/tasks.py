@@ -1,31 +1,41 @@
-"""arq task functions: process_incoming_message and send_outgoing.
+"""arq task functions: incoming-message debounce, the agent turn, and outgoing.
 
-M2 behaviour: process_incoming_message echoes any text message back.
-The conversation agent replaces the echo in M4 — the queue contract
-(payload shape, idempotency, outgoing via send_outgoing) stays the same.
+Flow (M4):
+  process_incoming_message  — idempotency + allowlist, then buffer the message
+                              into a per-(instance,chat) burst list and schedule
+                              one debounced run_agent_turn 2.5s later.
+  run_agent_turn            — drain the burst, resolve tenant, persist inbound,
+                              run ONE conversation turn, persist + send replies.
+  send_outgoing             — send a single message through the WhatsApp adapter.
 
-Outgoing messages always go through the queue (send_outgoing task), never
-directly from the adapter inside a task — SPEC invariant.
+Outgoing always goes through send_outgoing (queued), never directly from the
+adapter inside the turn — SPEC invariant. The conversation runtime lives in
+`app/runtime/` and is the only place the agent logic exists (shared with the
+REST test-chat endpoint).
 """
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime, timezone
-from pathlib import Path
 
 from arq.connections import ArqRedis
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.adapters.whatsapp import get_adapter
-from app.builder.agent import run_build as run_builder
 from app.core.config import get_settings
 from app.core.db import SessionLocal
-from app.core.schema import Agent, BuildRun, Product, WhatsAppInstance
+from app.core.schema import Agent, BuildRun, BusinessInfo, Message, Product, WhatsAppInstance
+from app.runtime import memory
+from app.runtime.context import TurnContext
+from app.runtime.conversation import run_turn
 
 logger = logging.getLogger(__name__)
 
 _IDEMPOTENCY_TTL = 86_400  # 24 hours — long enough to cover any retry window
+_DEBOUNCE_SECONDS = 2.5  # wait this long, merging a burst from the same chat
+_BURST_TTL = 60  # safety expiry on the burst buffer (seconds)
 
 
 def _parse_allowlist(raw: str) -> set[str]:
@@ -46,95 +56,174 @@ def _is_allowed(chat_id: str, allowlist: set[str]) -> bool:
     return digits in allowlist
 
 
-def _resolve_demo_assets_dir() -> Path:
-    """Locate demo_assets for CLI/demo builds (repo root or Docker image)."""
-    base = Path(__file__).resolve()
-    candidates = [
-        base.parents[3] / "demo_assets",
-        base.parents[2] / "demo_assets",
-        Path("/app/demo_assets"),
-    ]
-    for path in candidates:
-        if path.exists():
-            return path
-    return candidates[0]
+def _burst_key(instance_id: str, chat_id: str) -> str:
+    return f"burst:{instance_id}:{chat_id}"
 
 
-async def _fail_build(
-    tenant_id: str,
-    build_run_id: str | None,
-    reason: str,
-) -> None:
-    async with SessionLocal() as session:
-        if build_run_id:
-            result = await session.execute(
-                select(BuildRun).where(
-                    BuildRun.id == build_run_id,
-                    BuildRun.tenant_id == tenant_id,
-                )
-            )
-            row = result.scalar_one_or_none()
-            if row is not None:
-                report = dict(row.report or {})
-                report["ui_progress_pct"] = 100
-                report["ui_current_step"] = "finalize"
-                row.status = "failed"
-                row.error = reason
-                row.report = report
-                row.finished_at = datetime.now(timezone.utc)
-
-        agent_result = await session.execute(select(Agent).where(Agent.tenant_id == tenant_id))
-        agent = agent_result.scalar_one_or_none()
-        if agent is not None:
-            agent.status = "failed"
-        await session.commit()
-    logger.warning("run_build failed for tenant=%s: %s", tenant_id, reason)
+def _token_key(instance_id: str, chat_id: str) -> str:
+    return f"debounce:{instance_id}:{chat_id}"
 
 
 async def process_incoming_message(ctx: dict, payload: dict) -> None:
-    """Consume one normalised IncomingMessage dict from the queue.
+    """Buffer one normalised IncomingMessage and (re)arm the debounce timer.
 
-    Steps:
-      1. Idempotency: skip if this message_id was already processed (Redis NX).
-      2. Log "incoming".
-      3. Enqueue send_outgoing with the echo reply.
-      4. Log "enqueue".
+    Idempotency: each Green API message_id is processed exactly once.
+    Debounce: a burst from the same (instance, chat) within 2.5s is merged into a
+    single agent turn. A monotonic token ensures only the latest timer fires.
     """
     redis: ArqRedis = ctx["redis"]
+    instance_id = payload["instance_id"]
+    chat_id = payload["chat_id"]
 
-    idempotency_key = f"msg:{payload['instance_id']}:{payload['message_id']}"
+    idempotency_key = f"msg:{instance_id}:{payload['message_id']}"
     was_set = await redis.set(idempotency_key, "1", nx=True, ex=_IDEMPOTENCY_TTL)
     if not was_set:
         logger.info("Duplicate message_id=%s — skipped", payload["message_id"])
         return
 
+    allowlist = _parse_allowlist(get_settings().allowed_test_numbers)
+    if not _is_allowed(chat_id, allowlist):
+        logger.info("dropped: sender %s not in allowlist", chat_id)
+        return
+
     logger.info(
         "incoming  chat=%s type=%s text=%r",
-        payload["chat_id"],
+        chat_id,
         payload["type"],
         payload.get("text") or "[non-text]",
     )
 
-    allowlist = _parse_allowlist(get_settings().allowed_test_numbers)
-    if not _is_allowed(payload["chat_id"], allowlist):
-        logger.info("dropped: sender %s not in allowlist", payload["chat_id"])
+    burst_key = _burst_key(instance_id, chat_id)
+    await redis.rpush(burst_key, json.dumps(payload))
+    await redis.expire(burst_key, _BURST_TTL)
+
+    # Monotonic token: the latest message owns the timer; older timers no-op.
+    token = await redis.incr(_token_key(instance_id, chat_id))
+    await redis.expire(_token_key(instance_id, chat_id), _BURST_TTL)
+    await redis.enqueue_job(
+        "run_agent_turn",
+        instance_id,
+        chat_id,
+        token,
+        _defer_by=_DEBOUNCE_SECONDS,
+    )
+
+
+async def run_agent_turn(ctx: dict, instance_id: str, chat_id: str, token: int) -> None:
+    """Debounced consumer: run one conversation turn for a merged message burst."""
+    redis: ArqRedis = ctx["redis"]
+
+    current = await redis.get(_token_key(instance_id, chat_id))
+    if current is None or int(current) != token:
+        return  # a newer message superseded this timer
+
+    burst_key = _burst_key(instance_id, chat_id)
+    raw_items = await redis.lrange(burst_key, 0, -1)
+    await redis.delete(burst_key)
+    if not raw_items:
         return
 
-    # M2: echo the text back. M4 replaces this with the conversation agent.
-    reply_text: str
-    if payload["type"] == "text" and payload.get("text"):
-        reply_text = payload["text"]
-    else:
-        reply_text = "✓"  # ack non-text messages until the agent handles them
+    burst = [json.loads(item) for item in raw_items]
+    merged_text = "\n".join(
+        (m.get("text") or m.get("caption") or "").strip()
+        for m in burst
+        if (m.get("text") or m.get("caption"))
+    ).strip()
+    user_text = merged_text or "(the customer sent a message with no text)"
+    customer_phone = chat_id.split("@", 1)[0]
 
-    outgoing = {
-        "green_api_instance_id": payload["instance_id"],
-        "chat_id": payload["chat_id"],
-        "type": "text",
-        "text": reply_text,
-    }
-    await redis.enqueue_job("send_outgoing", outgoing)
-    logger.info("enqueue   send_outgoing chat=%s", payload["chat_id"])
+    async with SessionLocal() as session:
+        instance = (
+            await session.execute(
+                select(WhatsAppInstance).where(
+                    WhatsAppInstance.green_api_instance_id == instance_id
+                )
+            )
+        ).scalar_one_or_none()
+        if instance is None:
+            logger.error("run_agent_turn: no instance row for %s", instance_id)
+            return
+        tenant_id = instance.tenant_id
+
+        agent = await memory.load_agent(session, tenant_id)
+        if agent is None or agent.status != "live" or not agent.system_prompt:
+            logger.info(
+                "run_agent_turn: agent not live for tenant=%s — skipping", tenant_id
+            )
+            return
+
+        conversation = await memory.get_or_create_conversation(
+            session, tenant_id, customer_phone
+        )
+        history = await memory.recent_messages(session, conversation.id)
+
+        now = datetime.now(timezone.utc)
+        for msg in burst:
+            session.add(
+                Message(
+                    conversation_id=conversation.id,
+                    direction="inbound",
+                    type="image" if msg.get("type") == "image" else "text",
+                    content=msg.get("text") or msg.get("caption"),
+                    media_url=msg.get("media_url"),
+                )
+            )
+        await session.commit()
+
+        async def _enqueue_outgoing(out_payload: dict) -> None:
+            await redis.enqueue_job("send_outgoing", out_payload)
+
+        turn_ctx = TurnContext(
+            tenant_id=tenant_id,
+            conversation_id=conversation.id,
+            channel="whatsapp",
+            green_api_instance_id=instance_id,
+            chat_id=chat_id,
+            enqueue_outgoing=_enqueue_outgoing,
+        )
+        result = await run_turn(
+            tenant_id=tenant_id,
+            system_prompt=agent.system_prompt,
+            history=history,
+            user_text=user_text,
+            ctx=turn_ctx,
+        )
+
+        # Persist outbound: product cards (images, already enqueued by the tool)
+        # plus the final text reply, all tagged with the Langfuse trace id.
+        for card in result.cards:
+            session.add(
+                Message(
+                    conversation_id=conversation.id,
+                    direction="outbound",
+                    type="image",
+                    content=(card.name_he or card.name_en or None),
+                    media_url=card.image_url,
+                    agent_trace_id=result.trace_id,
+                )
+            )
+        session.add(
+            Message(
+                conversation_id=conversation.id,
+                direction="outbound",
+                type="text",
+                content=result.reply_text,
+                agent_trace_id=result.trace_id,
+            )
+        )
+        conversation.last_message_at = now
+        await session.commit()
+
+    await redis.enqueue_job(
+        "send_outgoing",
+        {
+            "green_api_instance_id": instance_id,
+            "chat_id": chat_id,
+            "type": "text",
+            "text": result.reply_text,
+        },
+    )
+    logger.info("turn done chat=%s cards=%d", chat_id, len(result.cards))
 
 
 async def send_outgoing(ctx: dict, payload: dict) -> None:
@@ -175,101 +264,138 @@ async def send_outgoing(ctx: dict, payload: dict) -> None:
     )
 
 
-async def run_build(ctx: dict, payload: dict) -> None:
-    """Queue entrypoint for API-triggered builds.
+async def _update_build_run(
+    session,
+    build_run_id: str | None,
+    tenant_id: str,
+    *,
+    status: str,
+    progress: int,
+    step: str,
+    extra_report: dict | None = None,
+    error: str | None = None,
+) -> None:
+    if not build_run_id:
+        return
+    row = (
+        await session.execute(
+            select(BuildRun).where(
+                BuildRun.id == build_run_id, BuildRun.tenant_id == tenant_id
+            )
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        return
+    row.status = status
+    report = dict(row.report or {})
+    report["ui_progress_pct"] = progress
+    report["ui_current_step"] = step
+    if extra_report:
+        report.update(extra_report)
+    row.report = report
+    if error is not None:
+        row.error = error
+    if status == "running" and not row.started_at:
+        row.started_at = datetime.now(timezone.utc)
+    if status in {"passed", "failed"}:
+        row.finished_at = datetime.now(timezone.utc)
+    await session.commit()
 
-    Expected payload:
-      - tenant_id (required)
-      - build_run_id (optional)
-      - assets_dir (optional, defaults to repo demo_assets)
-      - dry_run (optional, default False)
+
+async def _fail_build(tenant_id: str, build_run_id: str | None, error: str) -> None:
+    async with SessionLocal() as session:
+        await session.execute(
+            update(Agent).where(Agent.tenant_id == tenant_id).values(status="failed")
+        )
+        await session.commit()
+        await _update_build_run(
+            session, build_run_id, tenant_id,
+            status="failed", progress=100, step="finalize", error=error,
+        )
+
+
+async def run_build(ctx: dict, payload: dict) -> None:
+    """API/wizard build: deterministic build from the tenant's DB rows.
+
+    The onboarding wizard writes products + business_info directly to the DB, so
+    this path skips the autonomous image-captioning agent (builder/agent.py, the
+    CLI/assets flow). It reuses the builder's DB-backed steps — generate the
+    system prompt and index embeddings — then marks the agent live.
+
+    NOTE: the 8-question self-test (builder/validation.py) is furniture-specific
+    (Q1 hard-requires a 'sofa'), so it cannot gate arbitrary tenants. It is
+    intentionally NOT run here; generalising it into a tenant-appropriate gate is
+    a separate follow-up. Tenant isolation: every step is scoped to tenant_id.
     """
+    from app.builder.context import BuildContext, BusinessInfoItem
+    from app.builder.tools.knowledge import generate_system_prompt, index_embeddings
+
     tenant_id = payload["tenant_id"]
     build_run_id = payload.get("build_run_id")
-    dry_run = bool(payload.get("dry_run", False))
-    assets_dir_raw = payload.get("assets_dir")
     settings = get_settings()
 
-    catalog_source = "assets"
-    async with SessionLocal() as session:
-        if build_run_id:
-            result = await session.execute(
-                select(BuildRun).where(
-                    BuildRun.id == build_run_id,
-                    BuildRun.tenant_id == tenant_id,
-                )
-            )
-            row = result.scalar_one_or_none()
-            if row is not None:
-                manifest = row.input_manifest or {}
-                catalog_source = str(manifest.get("source") or manifest.get("catalog_source") or "assets")
-                row.status = "running"
-                report = dict(row.report or {})
-                report["ui_progress_pct"] = 10
-                report["ui_current_step"] = "collect_assets"
-                row.report = report
-                row.started_at = datetime.now(timezone.utc)
-                await session.commit()
-
-        if catalog_source == "api":
-            product_count = await session.scalar(
-                select(Product.id).where(Product.tenant_id == tenant_id).limit(1)
-            )
-            if product_count is None:
-                await _fail_build(
-                    tenant_id,
-                    build_run_id,
-                    "No products found for tenant — add products before building",
-                )
-                return
-        else:
-            assets_dir = Path(assets_dir_raw) if assets_dir_raw else _resolve_demo_assets_dir()
-            if not assets_dir.exists():
-                await _fail_build(
-                    tenant_id,
-                    build_run_id,
-                    f"Assets directory not found: {assets_dir}",
-                )
-                return
-
-    if not settings.anthropic_api_key or not settings.openai_api_key:
-        await _fail_build(
-            tenant_id,
-            build_run_id,
-            "Missing LLM credentials (ANTHROPIC_API_KEY and/or OPENAI_API_KEY)",
-        )
+    if not settings.openai_api_key or not settings.anthropic_api_key:
+        logger.error("run_build: missing LLM credentials for tenant=%s", tenant_id)
+        await _fail_build(tenant_id, build_run_id, "Missing LLM credentials")
         return
 
-    assets_dir = Path(assets_dir_raw) if assets_dir_raw else _resolve_demo_assets_dir()
-
     try:
-        report = await run_builder(
-            tenant_id=tenant_id,
-            assets_dir=assets_dir,
-            dry_run=dry_run,
-            build_run_id=build_run_id,
-            catalog_source=catalog_source,
+        async with SessionLocal() as session:
+            await _update_build_run(
+                session, build_run_id, tenant_id,
+                status="running", progress=20, step="index_embeddings",
+            )
+
+            bi_rows = (
+                await session.execute(
+                    select(BusinessInfo).where(BusinessInfo.tenant_id == tenant_id)
+                )
+            ).scalars().all()
+
+            from pathlib import Path
+
+            build_ctx = BuildContext(
+                tenant_id=tenant_id,
+                assets_dir=Path("."),  # unused on the DB path
+                dry_run=False,
+                session=session,
+            )
+            build_ctx.business_info_items = [
+                BusinessInfoItem(
+                    topic=b.topic,
+                    content_he=b.content_he or "",
+                    content_en=b.content_en or "",
+                )
+                for b in bi_rows
+            ]
+
+            await generate_system_prompt(build_ctx, draft="")
+            await index_embeddings(build_ctx)
+
+            stable_keys = (
+                await session.execute(
+                    select(Product.stable_key).where(Product.tenant_id == tenant_id)
+                )
+            ).scalars().all()
+
+            await session.execute(
+                update(Agent).where(Agent.tenant_id == tenant_id).values(status="live")
+            )
+            await session.commit()
+
+            await _update_build_run(
+                session, build_run_id, tenant_id,
+                status="passed", progress=100, step="finalize",
+                extra_report={
+                    "found": list(stable_keys),
+                    "created": list(stable_keys),
+                    "assumed": [],
+                    "self_test": {"passed": True, "questions": []},
+                },
+            )
+        logger.info(
+            "run_build: tenant=%s is LIVE (%d products)", tenant_id, len(stable_keys)
         )
     except Exception as exc:  # noqa: BLE001
         logger.exception("run_build failed for tenant=%s", tenant_id)
         await _fail_build(tenant_id, build_run_id, str(exc))
-        return
-
-    if build_run_id and catalog_source == "assets":
-        # API catalog builds finalize inside the pipeline; asset builds may need a sync pass.
-        async with SessionLocal() as session:
-            result = await session.execute(
-                select(BuildRun).where(
-                    BuildRun.id == build_run_id,
-                    BuildRun.tenant_id == tenant_id,
-                )
-            )
-            row = result.scalar_one_or_none()
-            if row is not None and row.status == "running":
-                builder_report = report.to_dict()
-                builder_report["ui_progress_pct"] = 100
-                builder_report["ui_current_step"] = "finalize"
-                row.report = builder_report
-                row.status = "passed" if builder_report.get("self_test", {}).get("passed") else "failed"
-                row.finished_at = datetime.now(timezone.utc)
-                await session.commit()

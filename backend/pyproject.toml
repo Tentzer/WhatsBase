@@ -2,12 +2,11 @@
 name = "whatsbase-backend"
 version = "0.1.0"
 description = "WhatsApp AI Agent Builder Platform — backend (Builder agent + Conversation agent)"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     # web / async
     "fastapi>=0.115",
     "uvicorn[standard]>=0.32",
-    "python-multipart>=0.0.9",
     "pydantic>=2.9",
     "pydantic-settings>=2.6",
     # db
@@ -48,6 +47,3 @@ include = ["app*"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
-markers = [
-    "integration: requires a live DATABASE_URL (deselect with -m 'not integration')",
-]

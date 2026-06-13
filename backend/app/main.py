@@ -1,6 +1,7 @@
 """FastAPI application entrypoint.
 
 Run locally: `uvicorn app.main:app --reload` (from the backend/ directory).
+M1 mounts only the health router; feature routers land in later milestones.
 """
 
 from __future__ import annotations
@@ -41,7 +42,7 @@ app.add_middleware(
 )
 
 app.include_router(health_router)
-app.include_router(analytics_router)
+app.include_router(webhook_router)
 app.include_router(onboarding_router)
 app.include_router(agent_runtime_router)
-app.include_router(webhook_router)
+app.include_router(analytics_router)

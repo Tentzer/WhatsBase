@@ -73,6 +73,8 @@ class Tenant(TimestampMixin, Base):
 
     id: Mapped[str] = _pk()
     name: Mapped[str] = mapped_column(String(255), nullable=False)
+    # Present in the deployed Supabase DB (added by Roy); mirror it here so the
+    # onboarding endpoint can read/write tenant descriptions.
     description: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
     plan: Mapped[str] = mapped_column(String(32), nullable=False, default="free")

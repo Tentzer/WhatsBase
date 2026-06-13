@@ -47,6 +47,7 @@ class Settings(BaseSettings):
     # --- Runtime behavior ---
     intake_mode: IntakeMode = "polling"
     app_base_url: str = "http://localhost:8000"
+
     # Comma-separated frontend origins allowed to call the API from browsers.
     # Example:
     #   https://whatsbase.vercel.app,https://my-preview.vercel.app

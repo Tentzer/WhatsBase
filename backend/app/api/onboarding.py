@@ -4,7 +4,7 @@ import logging
 from datetime import datetime, timezone
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,8 +13,6 @@ from app.api.schemas import (
     BusinessInfoItem,
     MeResponse,
     MeUserResponse,
-    ProductImagePayload,
-    ProductImageUploadResponse,
     ProductPayload,
     ProductResponse,
     TenantCreateRequest,
@@ -22,51 +20,13 @@ from app.api.schemas import (
     WhatsAppConnectRequest,
     WhatsAppStatusResponse,
 )
-from app.core.business_info import dedupe_business_info_payload, dedupe_business_info_rows
 from app.core.config import get_settings
 from app.core.crypto import encrypt_token
 from app.core.db import get_session
-from app.core.product_images import (
-    backfill_product_image_row,
-    is_usable_public_url,
-    upload_product_image,
-)
 from app.core.schema import BusinessInfo, Product, ProductImage, Tenant, User, WhatsAppInstance
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["onboarding"])
-
-
-def _image_response_dict(image_row: ProductImage | None) -> dict | None:
-    if image_row is None:
-        return None
-    return {
-        "file_name": None,
-        "storage_path": image_row.storage_path,
-        "public_url": image_row.public_url,
-    }
-
-
-async def _resolve_image_row(
-    *,
-    tenant_id: str,
-    stable_key: str,
-    image_row: ProductImage | None,
-) -> ProductImage | None:
-    if image_row is None:
-        return None
-    storage_path, public_url = backfill_product_image_row(
-        tenant_id=tenant_id,
-        stable_key=stable_key,
-        storage_path=image_row.storage_path,
-        public_url=image_row.public_url,
-        filename_hint=image_row.storage_path.rsplit("/", 1)[-1] if image_row.storage_path else None,
-    )
-    if storage_path:
-        image_row.storage_path = storage_path
-    if public_url:
-        image_row.public_url = public_url
-    return image_row
 
 
 @router.get("/debug")
@@ -159,21 +119,13 @@ async def get_business_info(
         .order_by(BusinessInfo.created_at.asc())
     )
     rows = result.scalars().all()
-    deduped = dedupe_business_info_rows(rows)
-    if len(deduped) < len(rows):
-        keep_ids = {row.id for row in deduped}
-        for row in rows:
-            if row.id not in keep_ids:
-                await session.delete(row)
-        await session.commit()
-
     return [
         BusinessInfoItem(
             topic=row.topic,
             content_he=row.content_he or "",
             content_en=row.content_en or "",
         )
-        for row in deduped
+        for row in rows
     ]
 
 
@@ -184,9 +136,8 @@ async def save_business_info(
     session: AsyncSession = Depends(get_session),
 ) -> list[BusinessInfoItem]:
     tenant_id = require_tenant(ctx)
-    normalized = dedupe_business_info_payload(payload, topic_getter=lambda item: item.topic)
     await session.execute(delete(BusinessInfo).where(BusinessInfo.tenant_id == tenant_id))
-    for item in normalized:
+    for item in payload:
         session.add(
             BusinessInfo(
                 tenant_id=tenant_id,
@@ -196,7 +147,7 @@ async def save_business_info(
             )
         )
     await session.commit()
-    return normalized
+    return payload
 
 
 @router.get("/products", response_model=list[ProductResponse])
@@ -217,12 +168,6 @@ async def get_products(
             .order_by(ProductImage.created_at.asc())
         )
         image = image_result.scalars().first()
-        if image is not None:
-            image = await _resolve_image_row(
-                tenant_id=tenant_id,
-                stable_key=product.stable_key,
-                image_row=image,
-            )
         responses.append(
             ProductResponse(
                 id=product.id,
@@ -236,42 +181,18 @@ async def get_products(
                 colors=str((product.attributes or {}).get("colors", "")),
                 materials=str((product.attributes or {}).get("materials", "")),
                 style=str((product.attributes or {}).get("style", "")),
-                image=_image_response_dict(image),
+                image=(
+                    None
+                    if image is None
+                    else {
+                        "file_name": None,
+                        "storage_path": image.storage_path,
+                        "public_url": image.public_url,
+                    }
+                ),
             )
         )
-
-    await session.commit()
     return responses
-
-
-@router.post("/products/upload-image", response_model=ProductImageUploadResponse)
-async def upload_product_image_file(
-    file: UploadFile = File(...),
-    ctx: AuthContext = Depends(get_auth_context),
-) -> ProductImageUploadResponse:
-    tenant_id = require_tenant(ctx)
-    if not file.filename:
-        raise HTTPException(status_code=400, detail="Image filename is required")
-
-    content = await file.read()
-    try:
-        storage_path, public_url = await upload_product_image(
-            tenant_id=tenant_id,
-            filename=file.filename,
-            content=content,
-            content_type=file.content_type,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("product image upload failed for tenant=%s", tenant_id)
-        raise HTTPException(status_code=502, detail="Image upload failed") from exc
-
-    return ProductImageUploadResponse(
-        file_name=file.filename,
-        storage_path=storage_path,
-        public_url=public_url,
-    )
 
 
 @router.post("/products", response_model=list[ProductResponse])
@@ -327,10 +248,7 @@ async def save_products(
                 session.add(image_row)
 
             image_row.storage_path = image_payload.storage_path
-            if is_usable_public_url(image_payload.public_url):
-                image_row.public_url = image_payload.public_url
-            elif image_payload.public_url:
-                image_row.public_url = None
+            image_row.public_url = image_payload.public_url
         else:
             existing_result = await session.execute(
                 select(ProductImage)
@@ -338,12 +256,6 @@ async def save_products(
                 .order_by(ProductImage.created_at.asc())
             )
             image_row = existing_result.scalars().first()
-
-        image_row = await _resolve_image_row(
-            tenant_id=tenant_id,
-            stable_key=product.stable_key,
-            image_row=image_row,
-        )
 
         output.append(
             ProductResponse(
@@ -358,7 +270,15 @@ async def save_products(
                 colors=str((product.attributes or {}).get("colors", "")),
                 materials=str((product.attributes or {}).get("materials", "")),
                 style=str((product.attributes or {}).get("style", "")),
-                image=_image_response_dict(image_row),
+                image=(
+                    None
+                    if image_row is None
+                    else {
+                        "file_name": None,
+                        "storage_path": image_row.storage_path,
+                        "public_url": image_row.public_url,
+                    }
+                ),
             )
         )
 

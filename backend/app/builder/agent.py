@@ -39,18 +39,12 @@ def _get_anthropic():
 
 
 @observe(name="builder.run")
-async def run_build(
-    tenant_id: str,
-    assets_dir: Path,
-    dry_run: bool = False,
-    *,
-    build_run_id: str | None = None,
-    catalog_source: str = "assets",
-) -> BuildReport:
+async def run_build(tenant_id: str, assets_dir: Path, dry_run: bool = False) -> BuildReport:
     """Run the full Builder agent for one tenant. Returns the BuildReport."""
     update_trace(tenant_id=tenant_id)
 
     async with SessionLocal() as session:
+        # Verify tenant exists.
         tenant_result = await session.execute(
             select(Tenant).where(Tenant.id == tenant_id)
         )
@@ -58,59 +52,42 @@ async def run_build(
         if tenant is None:
             raise ValueError(f"Tenant {tenant_id!r} not found in database")
 
-        if build_run_id:
-            existing = await session.execute(
-                select(BuildRun).where(
-                    BuildRun.id == build_run_id,
-                    BuildRun.tenant_id == tenant_id,
-                )
-            )
-            if existing.scalar_one_or_none() is None:
-                raise ValueError(f"Build run {build_run_id!r} not found for tenant {tenant_id!r}")
-        else:
-            build_run = BuildRun(
-                tenant_id=tenant_id,
-                status="running",
-                input_manifest={
-                    "assets_dir": str(assets_dir),
-                    "dry_run": dry_run,
-                    "catalog_source": catalog_source,
-                    "images": sorted(
-                        p.name
-                        for p in (assets_dir / "images").iterdir()
-                        if p.is_file()
-                    ) if (assets_dir / "images").exists() else [],
-                },
-                report={},
-                started_at=datetime.now(timezone.utc),
-            )
-            session.add(build_run)
-            await session.commit()
+        # Create a build_runs row (running).
+        build_run = BuildRun(
+            tenant_id=tenant_id,
+            status="running",
+            input_manifest={
+                "assets_dir": str(assets_dir),
+                "dry_run": dry_run,
+                "images": sorted(
+                    p.name
+                    for p in (assets_dir / "images").iterdir()
+                    if p.is_file()
+                ) if (assets_dir / "images").exists() else [],
+            },
+            report={},
+            started_at=datetime.now(timezone.utc),
+        )
+        session.add(build_run)
+        await session.commit()
 
         ctx = BuildContext(
             tenant_id=tenant_id,
             assets_dir=assets_dir,
             dry_run=dry_run,
             session=session,
-            build_run_id=build_run_id,
-            catalog_source=catalog_source,
         )
 
         try:
-            if catalog_source == "api":
-                await _api_catalog_pipeline(ctx, tenant.name)
-            else:
-                await _agent_loop(ctx)
+            await _agent_loop(ctx)
         except Exception as exc:
             logger.exception("Builder agent loop failed for tenant=%s", tenant_id)
             ctx.report.errors.append(str(exc))
+            # Mark build failed if not already handled by finalize_build.
             from sqlalchemy import update
-            build_run_filter = [BuildRun.tenant_id == tenant_id, BuildRun.status == "running"]
-            if build_run_id:
-                build_run_filter.append(BuildRun.id == build_run_id)
             await session.execute(
                 update(BuildRun)
-                .where(*build_run_filter)
+                .where(BuildRun.tenant_id == tenant_id, BuildRun.status == "running")
                 .values(
                     status="failed",
                     error=str(exc),
@@ -126,131 +103,6 @@ async def run_build(
             await session.commit()
 
     return ctx.report
-
-
-async def _update_build_progress(
-    ctx: BuildContext,
-    *,
-    step: str,
-    progress_pct: int,
-) -> None:
-    if not ctx.build_run_id:
-        return
-    from sqlalchemy import update
-
-    report = dict((await _load_build_report(ctx)) or {})
-    report["ui_progress_pct"] = progress_pct
-    report["ui_current_step"] = step
-    await ctx.session.execute(
-        update(BuildRun)
-        .where(
-            BuildRun.id == ctx.build_run_id,
-            BuildRun.tenant_id == ctx.tenant_id,
-        )
-        .values(report=report)
-    )
-    await ctx.session.commit()
-
-
-async def _load_build_report(ctx: BuildContext) -> dict | None:
-    if not ctx.build_run_id:
-        return None
-    result = await ctx.session.execute(
-        select(BuildRun.report).where(
-            BuildRun.id == ctx.build_run_id,
-            BuildRun.tenant_id == ctx.tenant_id,
-        )
-    )
-    row = result.scalar_one_or_none()
-    return dict(row) if row else None
-
-
-async def _backfill_tenant_product_images(ctx: BuildContext) -> None:
-    """Resolve Supabase Storage URLs for owner-uploaded products before indexing."""
-    from app.core.product_images import backfill_product_image_row
-    from app.core.schema import Product, ProductImage
-
-    products_result = await ctx.session.execute(
-        select(Product).where(Product.tenant_id == ctx.tenant_id)
-    )
-    products = products_result.scalars().all()
-    for product in products:
-        image_result = await ctx.session.execute(
-            select(ProductImage)
-            .where(ProductImage.product_id == product.id)
-            .order_by(ProductImage.created_at.asc())
-        )
-        image_row = image_result.scalars().first()
-        if image_row is None:
-            continue
-        storage_path, public_url = backfill_product_image_row(
-            tenant_id=ctx.tenant_id,
-            stable_key=product.stable_key,
-            storage_path=image_row.storage_path,
-            public_url=image_row.public_url,
-            filename_hint=image_row.storage_path.rsplit("/", 1)[-1] if image_row.storage_path else None,
-        )
-        if storage_path:
-            image_row.storage_path = storage_path
-        if public_url:
-            image_row.public_url = public_url
-    await ctx.session.commit()
-
-
-async def _api_catalog_pipeline(ctx: BuildContext, business_name: str) -> None:
-    """Deterministic build for onboarding: catalog already lives in Postgres."""
-    from app.builder.tools.finalize import finalize_build
-    from app.builder.tools.knowledge import (
-        generate_system_prompt,
-        index_embeddings,
-    )
-    from app.builder.validation import run_self_test
-    from app.core.schema import BusinessInfo, Product
-
-    products_result = await ctx.session.execute(
-        select(Product).where(Product.tenant_id == ctx.tenant_id)
-    )
-    products = products_result.scalars().all()
-    if not products:
-        raise ValueError("No products found for tenant — add products before building")
-
-    bi_result = await ctx.session.execute(
-        select(BusinessInfo).where(BusinessInfo.tenant_id == ctx.tenant_id)
-    )
-    from app.builder.context import BusinessInfoItem
-    from app.core.business_info import dedupe_business_info_payload
-
-    loaded_items = [
-        BusinessInfoItem(
-            topic=bi.topic,
-            content_he=bi.content_he or "",
-            content_en=bi.content_en or "",
-        )
-        for bi in bi_result.scalars().all()
-    ]
-    ctx.business_info_items = dedupe_business_info_payload(
-        loaded_items,
-        topic_getter=lambda item: item.topic,
-    )
-
-    await _update_build_progress(ctx, step="collect_assets", progress_pct=15)
-    await _backfill_tenant_product_images(ctx)
-
-    categories = sorted({p.category for p in products if p.category})
-    draft = (
-        f"{business_name}: {len(products)} products across {', '.join(categories) or 'general'}."
-    )
-    await _update_build_progress(ctx, step="caption_images", progress_pct=40)
-    await generate_system_prompt(ctx, draft)
-
-    await _update_build_progress(ctx, step="index_embeddings", progress_pct=70)
-    await index_embeddings(ctx)
-
-    await _update_build_progress(ctx, step="run_self_test", progress_pct=90)
-    await run_self_test(ctx)
-
-    await _update_build_progress(ctx, step="finalize", progress_pct=98)
-    await finalize_build(ctx)
 
 
 async def _agent_loop(ctx: BuildContext) -> None:

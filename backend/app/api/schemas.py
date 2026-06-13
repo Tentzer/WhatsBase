@@ -42,12 +42,6 @@ class ProductImagePayload(BaseModel):
     public_url: str | None = None
 
 
-class ProductImageUploadResponse(BaseModel):
-    file_name: str
-    storage_path: str
-    public_url: str
-
-
 class ProductPayload(BaseModel):
     stable_key: str = Field(min_length=1, max_length=255)
     name_he: str = ""
@@ -166,7 +160,6 @@ class ProductCardResponse(BaseModel):
     name_en: str
     price: float
     currency: str
-    category: str | None = None
 
 
 class TestChatMessageResponse(BaseModel):
@@ -183,7 +176,3 @@ class TestChatRequest(BaseModel):
 
 class TestChatResponse(BaseModel):
     reply: TestChatMessageResponse
-
-
-class ClearTestChatResponse(BaseModel):
-    deleted: int
