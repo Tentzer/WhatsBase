@@ -193,15 +193,19 @@ export default function ProductsOnboardingPage() {
 
   useEffect(() => {
     void (async () => {
-      if (products.length) {
-        setRows(products);
-        setSyncingUploads(false);
-        return;
-      }
       try {
+        const fromDb = await api.getProducts();
+        if (fromDb.length > 0) {
+          setRows(fromDb);
+          setProducts(fromDb);
+          setSyncingUploads(false);
+          return;
+        }
+
         const items = await api.syncProductsFromUploads();
         setRows(items);
         setProducts(items);
+        setCatalogPhotos(items.map((item) => item.image).filter(Boolean) as ProductImageDraft[]);
         if (items.length) {
           setBulkUploadMessage(
             t(
@@ -211,20 +215,19 @@ export default function ProductsOnboardingPage() {
           );
         }
       } catch (err) {
-        const fallback = await api.getProducts().catch(() => [] as ProductDraft[]);
-        setRows(fallback);
-        if (!fallback.length) {
-          setUploadError(
-            err instanceof Error
-              ? err.message
-              : t("Could not recover uploaded photos.", "לא ניתן לשחזר את התמונות שהועלו."),
-          );
-        }
+        setProducts([]);
+        setCatalogPhotos([]);
+        setRows([]);
+        setUploadError(
+          err instanceof Error
+            ? err.message
+            : t("Could not recover uploaded photos.", "לא ניתן לשחזר את התמונות שהועלו."),
+        );
       } finally {
         setSyncingUploads(false);
       }
     })();
-  }, [products.length, setProducts, t]);
+  }, [setCatalogPhotos, setProducts, t]);
 
   useEffect(() => {
     const folderInput = folderInputRef.current;
