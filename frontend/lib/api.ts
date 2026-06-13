@@ -78,11 +78,13 @@ async function requestJson<T>(
   init?: {
     method?: "GET" | "POST" | "PATCH" | "DELETE";
     body?: unknown;
+    timeoutMs?: number;
   },
 ): Promise<T> {
   const { token, userId, email } = await getSessionContext();
   const abortController = new AbortController();
-  const timeout = setTimeout(() => abortController.abort(), 15000);
+  const timeoutMs = init?.timeoutMs ?? 15000;
+  const timeout = setTimeout(() => abortController.abort(), timeoutMs);
   let response: Response;
   try {
     response = await fetch(toBackendUrl(path), {
@@ -101,9 +103,10 @@ async function requestJson<T>(
     });
   } catch (err) {
     const isTimeout = err instanceof DOMException && err.name === "AbortError";
+    const timeoutSec = Math.round(timeoutMs / 1000);
     throw new Error(
       isTimeout
-        ? `API ${path} timed out after 15 s — check backend URL and tunnel`
+        ? `API ${path} timed out after ${timeoutSec} s — check backend URL and tunnel`
         : `API ${path} network error — backend unreachable: ${String(err)}`,
     );
   } finally {
@@ -391,7 +394,7 @@ const realApi: ApiClient = {
         style: string;
         image?: { file_name?: string | null; storage_path: string; public_url?: string | null } | null;
       }>
-    >("/api/products/sync-uploads", { method: "POST" });
+    >("/api/products/sync-uploads", { method: "POST", timeoutMs: 120000 });
     return res.map((item) => mapApiProductToDraft(item));
   },
   saveProducts: async (products: ProductDraft[]) => {

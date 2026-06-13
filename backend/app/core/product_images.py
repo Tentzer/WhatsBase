@@ -86,16 +86,17 @@ async def list_orphan_tenant_uploads(
     return orphans
 
 
+def build_public_storage_url(storage_path: str) -> str:
+    """Build the public object URL without a round-trip to the Storage API."""
+    from app.core.config import get_settings
+
+    base = get_settings().supabase_url.rstrip("/")
+    return f"{base}/storage/v1/object/public/{BUCKET}/{storage_path}"
+
+
 async def public_url_for_storage_path(storage_path: str) -> str | None:
     try:
-        from app.core.supabase import get_supabase
-
-        supabase = get_supabase()
-
-        def _url() -> str:
-            return supabase.storage.from_(BUCKET).get_public_url(storage_path)
-
-        return await asyncio.to_thread(_url)
+        return build_public_storage_url(storage_path)
     except Exception as exc:
         logger.warning("unable to resolve public url for %s: %s", storage_path, exc)
         return None

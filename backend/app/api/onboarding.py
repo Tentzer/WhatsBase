@@ -7,6 +7,7 @@ from decimal import Decimal
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.api.deps import AuthContext, get_auth_context, require_tenant
 from app.api.schemas import (
@@ -25,8 +26,8 @@ from app.core.config import get_settings
 from app.core.crypto import encrypt_token
 from app.core.db import get_session
 from app.core.product_images import (
+    build_public_storage_url,
     list_orphan_tenant_uploads,
-    public_url_for_storage_path,
     stable_key_from_upload_object_name,
     upload_owner_image,
 )
@@ -41,17 +42,15 @@ async def _product_responses_for_tenant(
     tenant_id: str,
 ) -> list[ProductResponse]:
     result = await session.execute(
-        select(Product).where(Product.tenant_id == tenant_id).order_by(Product.created_at.asc())
+        select(Product)
+        .where(Product.tenant_id == tenant_id)
+        .options(selectinload(Product.images))
+        .order_by(Product.created_at.asc())
     )
     products = result.scalars().all()
     responses: list[ProductResponse] = []
     for product in products:
-        image_result = await session.execute(
-            select(ProductImage)
-            .where(ProductImage.product_id == product.id)
-            .order_by(ProductImage.created_at.asc())
-        )
-        image = image_result.scalars().first()
+        image = product.images[0] if product.images else None
         responses.append(
             ProductResponse(
                 id=product.id,
@@ -270,6 +269,7 @@ async def sync_products_from_uploads(
         )
         used_keys = {row[0] for row in existing_keys_result.all() if row[0]}
 
+        pending_images: list[tuple[Product, str]] = []
         for storage_path, storage_name in orphans:
             stable_key = stable_key_from_upload_object_name(storage_name)
             suffix = 1
@@ -287,14 +287,16 @@ async def sync_products_from_uploads(
                 source="owner_input",
             )
             session.add(product)
-            await session.flush()
+            pending_images.append((product, storage_path))
 
-            public_url = await public_url_for_storage_path(storage_path)
+        await session.flush()
+
+        for product, storage_path in pending_images:
             session.add(
                 ProductImage(
                     product_id=product.id,
                     storage_path=storage_path,
-                    public_url=public_url,
+                    public_url=build_public_storage_url(storage_path),
                 )
             )
 
