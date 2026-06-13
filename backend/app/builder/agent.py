@@ -165,6 +165,38 @@ async def _load_build_report(ctx: BuildContext) -> dict | None:
     return dict(row) if row else None
 
 
+async def _backfill_tenant_product_images(ctx: BuildContext) -> None:
+    """Resolve Supabase Storage URLs for owner-uploaded products before indexing."""
+    from app.core.product_images import backfill_product_image_row
+    from app.core.schema import Product, ProductImage
+
+    products_result = await ctx.session.execute(
+        select(Product).where(Product.tenant_id == ctx.tenant_id)
+    )
+    products = products_result.scalars().all()
+    for product in products:
+        image_result = await ctx.session.execute(
+            select(ProductImage)
+            .where(ProductImage.product_id == product.id)
+            .order_by(ProductImage.created_at.asc())
+        )
+        image_row = image_result.scalars().first()
+        if image_row is None:
+            continue
+        storage_path, public_url = backfill_product_image_row(
+            tenant_id=ctx.tenant_id,
+            stable_key=product.stable_key,
+            storage_path=image_row.storage_path,
+            public_url=image_row.public_url,
+            filename_hint=image_row.storage_path.rsplit("/", 1)[-1] if image_row.storage_path else None,
+        )
+        if storage_path:
+            image_row.storage_path = storage_path
+        if public_url:
+            image_row.public_url = public_url
+    await ctx.session.commit()
+
+
 async def _api_catalog_pipeline(ctx: BuildContext, business_name: str) -> None:
     """Deterministic build for onboarding: catalog already lives in Postgres."""
     from app.builder.tools.finalize import finalize_build
@@ -197,6 +229,7 @@ async def _api_catalog_pipeline(ctx: BuildContext, business_name: str) -> None:
         )
 
     await _update_build_progress(ctx, step="collect_assets", progress_pct=15)
+    await _backfill_tenant_product_images(ctx)
 
     categories = sorted({p.category for p in products if p.category})
     draft = (

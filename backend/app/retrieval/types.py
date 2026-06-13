@@ -16,5 +16,6 @@ class ProductHit:
     price: Decimal | None
     currency: str
     in_stock: bool
+    colors: list[str] = field(default_factory=list)
     image_urls: list[str] = field(default_factory=list)
     score: float = 0.0  # cosine similarity = 1 - cosine_distance

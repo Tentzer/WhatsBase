@@ -129,6 +129,42 @@ async function requestJson<T>(
   return (await response.json()) as T;
 }
 
+async function requestFormData<T>(path: string, form: FormData): Promise<T> {
+  const { token, userId, email } = await getSessionContext();
+  const abortController = new AbortController();
+  const timeout = setTimeout(() => abortController.abort(), 30000);
+  let response: Response;
+  try {
+    response = await fetch(toBackendUrl(path), {
+      method: "POST",
+      headers: {
+        "bypass-tunnel-reminder": "true",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(userId ? { "X-Supabase-User-Id": userId } : {}),
+        ...(email ? { "X-Supabase-Email": email } : {}),
+      },
+      signal: abortController.signal,
+      body: form,
+    });
+  } catch (err) {
+    const isTimeout = err instanceof DOMException && err.name === "AbortError";
+    throw new Error(
+      isTimeout
+        ? `API ${path} timed out after 30 s — check backend URL and tunnel`
+        : `API ${path} network error — backend unreachable: ${String(err)}`,
+    );
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`API ${path} failed (${response.status}): ${text}`);
+  }
+
+  return (await response.json()) as T;
+}
+
 type ApiProductCard = {
   id: string;
   image_url?: string | null;
@@ -167,7 +203,9 @@ function mapProductToApiPayload(product: ProductDraft) {
       ? {
           file_name: product.image.fileName,
           storage_path: product.image.storagePath,
-          public_url: product.image.previewUrl || null,
+          public_url: product.image.previewUrl?.startsWith("blob:")
+            ? null
+            : product.image.previewUrl || null,
         }
       : null,
   };
@@ -313,8 +351,20 @@ const realApi: ApiClient = {
     });
     return res.map((item) => mapApiProductToDraft(item));
   },
-  createImageDraft: async (file: File) => {
-    return mockApi.createImageDraft(file);
+  createImageDraft: async (file: File): Promise<ProductImageDraft> => {
+    const form = new FormData();
+    form.append("file", file);
+    const res = await requestFormData<{
+      file_name: string;
+      storage_path: string;
+      public_url: string;
+    }>("/api/products/upload-image", form);
+    return {
+      id: `img_${Date.now()}`,
+      fileName: res.file_name,
+      previewUrl: res.public_url,
+      storagePath: res.storage_path,
+    };
   },
   connectWhatsApp: async (payload: WhatsAppConnectRequest): Promise<WhatsAppConnection> => {
     const res = await requestJson<{

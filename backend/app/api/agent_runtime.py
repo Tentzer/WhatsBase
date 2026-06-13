@@ -27,6 +27,7 @@ from app.core.models import get_model
 from app.core.observability import observe, update_trace
 from app.core.schema import Agent, BuildRun, Conversation, Message
 from app.intake.queue import get_redis_pool
+from app.retrieval.relevance import filter_relevant_hits, infer_query_filters, select_card_hits
 from app.retrieval.search import search as retrieval_search
 from app.retrieval.types import ProductHit
 
@@ -339,12 +340,18 @@ async def _generate_agent_reply(
     update_trace(tenant_id=tenant_id)
     search_catalog = not _is_casual_greeting(user_text)
     if search_catalog:
-        hits = await retrieval_search(tenant_id=tenant_id, query=user_text, k=3)
-        cards = _build_cards_from_hits(hits)
-        catalog_context = _format_catalog_context(hits)
+        query_filters = infer_query_filters(user_text)
+        hits = await retrieval_search(
+            tenant_id=tenant_id,
+            query=user_text,
+            filters=query_filters,
+            k=5,
+        )
+        catalog_hits = filter_relevant_hits(user_text, hits)
+        catalog_context = _format_catalog_context(catalog_hits)
     else:
         hits = []
-        cards = None
+        catalog_hits = []
         catalog_context = "(no catalog lookup — casual greeting; reply warmly without listing products)"
 
     model_cfg = get_model("conversation")
@@ -387,6 +394,12 @@ async def _generate_agent_reply(
             if _detect_hebrew(user_text)
             else "I am not fully sure yet. Can you rephrase the question?"
         )
+
+    if search_catalog:
+        card_hits = select_card_hits(user_text, reply_text, catalog_hits)
+        cards = _build_cards_from_hits(card_hits)
+    else:
+        cards = None
     return reply_text, cards
 
 

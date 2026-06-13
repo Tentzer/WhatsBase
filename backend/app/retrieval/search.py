@@ -14,6 +14,7 @@ from sqlalchemy import text
 
 from app.core.db import SessionLocal
 from app.core.observability import observe, update_trace
+from app.core.product_images import resolve_hit_image_urls
 from app.retrieval.embed import embed_query
 from app.retrieval.types import ProductHit
 
@@ -94,11 +95,17 @@ async def search(
             p.price,
             p.currency,
             p.in_stock,
+            p.attributes,
             COALESCE(
-                json_agg(pi.public_url ORDER BY pi.id)
-                    FILTER (WHERE pi.public_url IS NOT NULL),
+                json_agg(
+                    json_build_object(
+                        'public_url', pi.public_url,
+                        'storage_path', pi.storage_path
+                    )
+                    ORDER BY pi.id
+                ) FILTER (WHERE pi.id IS NOT NULL),
                 '[]'::json
-            )                           AS image_urls,
+            )                           AS image_records,
             1 - (e.vector <=> CAST(:qvec AS halfvec))  AS score
         FROM embeddings e
         JOIN products p
@@ -110,7 +117,7 @@ async def search(
         GROUP BY
             p.id, p.stable_key, p.name_he, p.name_en,
             p.description_he, p.description_en,
-            p.category, p.price, p.currency, p.in_stock,
+            p.category, p.price, p.currency, p.in_stock, p.attributes,
             e.vector, e.id
         ORDER BY e.vector <=> CAST(:qvec AS halfvec)
         LIMIT :k
@@ -122,14 +129,32 @@ async def search(
 
     hits: list[ProductHit] = []
     for row in rows:
-        image_urls = row["image_urls"]
-        if isinstance(image_urls, str):
-            image_urls = json.loads(image_urls)
+        image_records = row["image_records"]
+        if isinstance(image_records, str):
+            image_records = json.loads(image_records)
+
+        attributes = row["attributes"] or {}
+        if isinstance(attributes, str):
+            attributes = json.loads(attributes)
+        raw_colors = attributes.get("colors", [])
+        if isinstance(raw_colors, str):
+            colors = [c.strip() for c in raw_colors.split(",") if c.strip()]
+        elif isinstance(raw_colors, list):
+            colors = [str(c) for c in raw_colors]
+        else:
+            colors = []
+
+        stable_key = row["stable_key"] or ""
+        image_urls = resolve_hit_image_urls(
+            tenant_id=tenant_id,
+            stable_key=stable_key,
+            image_records=image_records if isinstance(image_records, list) else [],
+        )
 
         hits.append(
             ProductHit(
                 product_id=str(row["product_id"]),
-                stable_key=row["stable_key"] or "",
+                stable_key=stable_key,
                 name_he=row["name_he"],
                 name_en=row["name_en"],
                 description_he=row["description_he"],
@@ -138,7 +163,8 @@ async def search(
                 price=Decimal(str(row["price"])) if row["price"] is not None else None,
                 currency=row["currency"] or "ILS",
                 in_stock=bool(row["in_stock"]),
-                image_urls=image_urls or [],
+                colors=colors,
+                image_urls=image_urls,
                 score=float(row["score"]),
             )
         )
