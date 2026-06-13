@@ -149,3 +149,26 @@ def test_webhook_text_normalised():
 def test_webhook_non_message_returns_none():
     msg = adapter.normalize_webhook_payload({"typeWebhook": "outgoingMessageStatus"})
     assert msg is None
+
+
+JOURNAL_TEXT_ENTRY = {
+    "type": "incoming",
+    "idMessage": "3AA0235AC64CC0886F7C",
+    "timestamp": 1781354181,
+    "typeMessage": "textMessage",
+    "chatId": "972528424810@c.us",
+    "textMessage": "שולחת",
+    "senderId": "972528424810@c.us",
+    "senderName": "May Hazon",
+}
+
+
+def test_journal_text_entry_normalised():
+    msg = adapter.normalize_journal_entry(JOURNAL_TEXT_ENTRY)
+    assert msg is not None
+    assert msg.type == "text"
+    assert msg.text == "שולחת"
+    assert msg.chat_id == "972528424810@c.us"
+    assert msg.sender == "972528424810@c.us"
+    assert msg.message_id == "3AA0235AC64CC0886F7C"
+    assert msg.notification_id is None

@@ -48,6 +48,11 @@ class GreenApiAdapter(WhatsAppAdapter):
     def __init__(self, instance_id: str, token: str) -> None:
         self._instance_id = instance_id
         self._client = API.GreenApi(instance_id, token)
+        # Set by get_incoming(): True when receiveNotification returned a payload
+        # (even if we acked a non-chat webhook). Used by the poller to avoid
+        # sleeping while draining a large notification backlog.
+        self.last_poll_had_notification = False
+        self._status_acks_since_log = 0
 
     # ------------------------------------------------------------------
     # Normalisation helpers (also used by the webhook router)
@@ -132,6 +137,74 @@ class GreenApiAdapter(WhatsAppAdapter):
 
         return None
 
+    def normalize_journal_entry(self, entry: dict) -> IncomingMessage | None:
+        """Parse a lastIncomingMessages() row into an IncomingMessage.
+
+        Journal rows are NOT the same shape as receiveNotification webhooks.
+        Used as a fallback when the real-time notification queue misses a message.
+        """
+        if entry.get("type") != "incoming":
+            return None
+        message_id: str = entry.get("idMessage") or ""
+        if not message_id:
+            return None
+        chat_id: str = entry.get("chatId") or ""
+        sender: str = entry.get("senderId") or chat_id
+        msg_type: str = entry.get("typeMessage") or ""
+
+        if msg_type in ("textMessage", "extendedTextMessage"):
+            text = entry.get("textMessage") or entry.get("text") or ""
+            return IncomingMessage(
+                instance_id=self._instance_id,
+                message_id=message_id,
+                chat_id=chat_id,
+                sender=sender,
+                type="text",
+                text=text,
+                notification_id=None,
+                raw=entry,
+            )
+
+        if msg_type == "imageMessage":
+            return IncomingMessage(
+                instance_id=self._instance_id,
+                message_id=message_id,
+                chat_id=chat_id,
+                sender=sender,
+                type="image",
+                media_url=entry.get("downloadUrl"),
+                caption=entry.get("caption") or "",
+                notification_id=None,
+                raw=entry,
+            )
+
+        return IncomingMessage(
+            instance_id=self._instance_id,
+            message_id=message_id,
+            chat_id=chat_id,
+            sender=sender,
+            type="other",
+            notification_id=None,
+            raw=entry,
+        )
+
+    async def fetch_recent_journal_incoming(self, minutes: int = 5) -> list[IncomingMessage]:
+        """Return recent incoming rows from the Green API message journal."""
+        response = await asyncio.to_thread(
+            self._client.journals.lastIncomingMessages, minutes
+        )
+        if response is None or response.code != 200 or not response.data:
+            return []
+        entries = response.data if isinstance(response.data, list) else []
+        out: list[IncomingMessage] = []
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            msg = self.normalize_journal_entry(entry)
+            if msg is not None:
+                out.append(msg)
+        return out
+
     # ------------------------------------------------------------------
     # Adapter interface
     # ------------------------------------------------------------------
@@ -142,29 +215,53 @@ class GreenApiAdapter(WhatsAppAdapter):
         Returns a list with 0 or 1 items: 0 = queue empty or non-message
         event; 1 = one parsed IncomingMessage.  The caller is responsible for
         calling ack() after processing.
+
+        Also sets ``last_poll_had_notification``: False only when the Green API
+        queue was empty (receive timed out with no payload).
         """
+        self.last_poll_had_notification = False
         response = await asyncio.to_thread(self._client.receiving.receiveNotification)
         if response is None or response.code != 200 or not response.data:
             return []
+        self.last_poll_had_notification = True
         msg = self.normalize_polling_notification(response.data)
         if msg is None:
             # Non-message notification — ack it and drop.
             body = (response.data or {}).get("body") or {}
             receipt_id = (response.data or {}).get("receiptId")
             wh = body.get("typeWebhook")
+            sender_data = body.get("senderData") or {}
+            chat_id = sender_data.get("chatId")
+            sender = sender_data.get("sender")
             if wh == "incomingMessageReceived":
                 logger.warning(
                     "unparsed incomingMessageReceived — acked; idMessage=%s chatId=%s "
                     "typeMessage=%s",
                     body.get("idMessage"),
-                    (body.get("senderData") or {}).get("chatId"),
+                    chat_id,
                     (body.get("messageData") or {}).get("typeMessage"),
                 )
+            elif wh == "outgoingMessageStatus":
+                self._status_acks_since_log += 1
+                if self._status_acks_since_log >= 50:
+                    logger.info(
+                        "draining notification queue: acked %d delivery-status "
+                        "webhooks (latest chat=%s)",
+                        self._status_acks_since_log,
+                        chat_id,
+                    )
+                    self._status_acks_since_log = 0
             elif wh:
-                logger.debug("acked non-message webhook %s", wh)
+                logger.info(
+                    "acked webhook %s chat=%s sender=%s",
+                    wh,
+                    chat_id,
+                    sender,
+                )
             if receipt_id is not None:
                 await self.ack(receipt_id)
             return []
+        self._status_acks_since_log = 0
         return [msg]
 
     async def ack(self, notification_id: int) -> None:
