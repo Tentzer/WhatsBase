@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useNavigate } from "@/components/navigation-progress";
 import { Loader2 } from "lucide-react";
 import { WizardStepper } from "@/components/wizard-stepper";
 import { Button } from "@/components/ui/button";
@@ -13,7 +12,6 @@ import { useLocale } from "@/lib/locale";
 import { useOnboardingStore } from "@/lib/store";
 
 export default function WhatsAppOnboardingPage() {
-  const navigate = useNavigate();
   const { t } = useLocale();
   const { whatsapp, setWhatsApp } = useOnboardingStore();
   const [instanceId, setInstanceId] = useState("");
@@ -27,7 +25,7 @@ export default function WhatsAppOnboardingPage() {
     });
   }, [setWhatsApp, whatsapp?.connected]);
 
-  const testConnection = async () => {
+  const connect = async () => {
     setChecking(true);
     const result = await api.connectWhatsApp({ instanceId, token });
     setWhatsApp(result);
@@ -42,8 +40,8 @@ export default function WhatsAppOnboardingPage() {
           <CardTitle>{t("Connect WhatsApp", "חיבור וואטסאפ")}</CardTitle>
           <CardDescription>
             {t(
-              "Provide Green API credentials and verify the connection.",
-              "הזינו פרטי Green API ובדקו שהחיבור תקין.",
+              "Enter your Green API instance ID and token to connect WhatsApp.",
+              "הזינו מזהה Instance וטוקן Green API לחיבור וואטסאפ.",
             )}
           </CardDescription>
         </CardHeader>
@@ -69,34 +67,27 @@ export default function WhatsAppOnboardingPage() {
           </div>
           <Button
             type="button"
-            variant="outline"
-            onClick={testConnection}
+            className="bg-emerald-600 hover:bg-emerald-700"
+            onClick={connect}
             disabled={checking || !instanceId || !token}
           >
             {checking ? (
               <span className="flex items-center gap-2">
                 <Loader2 className="size-4 animate-spin" />
-                {t("Testing...", "בודק...")}
+                {t("Connecting...", "מתחבר...")}
               </span>
             ) : (
-              t("Test connection", "בדיקת חיבור")
+              t("Connect", "חיבור")
             )}
           </Button>
 
           {whatsapp?.connected ? (
             <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
-              {t("Connected phone", "מספר מחובר")}: {whatsapp.phone} · {whatsapp.intakeMode}
+              {whatsapp.phone
+                ? t("Connected:", "מחובר:") + ` ${whatsapp.phone} · ${whatsapp.intakeMode}`
+                : t("Connected", "מחובר") + ` · ${whatsapp.intakeMode}`}
             </div>
           ) : null}
-
-          <Button
-            type="button"
-            className="bg-emerald-600 hover:bg-emerald-700"
-            disabled={!whatsapp?.connected}
-            onClick={() => navigate("/onboarding/build")}
-          >
-            {t("Rebuild to go live", "בנייה מחדש לפרסום")}
-          </Button>
         </CardContent>
       </Card>
     </div>
