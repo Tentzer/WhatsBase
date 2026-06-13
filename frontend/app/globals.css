@@ -153,3 +153,80 @@ html.dark {
     background: transparent;
   }
 }
+
+/* Premium scrollbars — thin emerald-tinted thumb, matches site skin */
+.scrollbar-premium {
+  scrollbar-width: thin;
+  scrollbar-color: oklch(0.58 0.17 154.45 / 0.35) transparent;
+}
+
+.scrollbar-premium::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.scrollbar-premium::-webkit-scrollbar-track {
+  background: transparent;
+  margin: 4px 0;
+}
+
+.scrollbar-premium::-webkit-scrollbar-thumb {
+  background: oklch(0.58 0.17 154.45 / 0.28);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.scrollbar-premium::-webkit-scrollbar-thumb:hover {
+  background: oklch(0.58 0.17 154.45 / 0.45);
+  background-clip: padding-box;
+}
+
+.dark .scrollbar-premium {
+  scrollbar-color: oklch(0.62 0.18 154.45 / 0.4) transparent;
+}
+
+.dark .scrollbar-premium::-webkit-scrollbar-thumb {
+  background: oklch(0.62 0.18 154.45 / 0.35);
+  background-clip: padding-box;
+}
+
+.dark .scrollbar-premium::-webkit-scrollbar-thumb:hover {
+  background: oklch(0.62 0.18 154.45 / 0.55);
+  background-clip: padding-box;
+}
+
+/* Typing indicator dots */
+.chat-typing-dot {
+  display: block;
+  height: 0.4rem;
+  width: 0.4rem;
+  border-radius: 999px;
+  background: oklch(0.58 0.17 154.45 / 0.7);
+  animation: chat-typing-bounce 1.2s ease-in-out infinite;
+}
+
+.chat-typing-dot.animation-delay-150 {
+  animation-delay: 0.15s;
+}
+
+.chat-typing-dot.animation-delay-300 {
+  animation-delay: 0.3s;
+}
+
+.dark .chat-typing-dot {
+  background: oklch(0.72 0.16 154.45 / 0.85);
+}
+
+@keyframes chat-typing-bounce {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.45;
+  }
+  30% {
+    transform: translateY(-4px);
+    opacity: 1;
+  }
+}

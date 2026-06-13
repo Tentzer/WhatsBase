@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { SendHorizonal, Sparkles } from "lucide-react";
+import { ChatTypingIndicator } from "@/components/chat-typing-indicator";
 import { ProductResultCard } from "@/components/product-result-card";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -17,6 +18,20 @@ export default function TestChatPage() {
   const [messages, setMessages] = useState<TestChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
+
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const initialScrollDone = useRef(false);
+
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
+    const container = scrollContainerRef.current;
+    if (container) {
+      container.scrollTo({ top: container.scrollHeight, behavior });
+      return;
+    }
+    bottomRef.current?.scrollIntoView({ behavior, block: "end" });
+  }, []);
 
   useEffect(() => {
     void api.getAgentStatus().then((status) => {
@@ -24,8 +39,24 @@ export default function TestChatPage() {
         router.push("/onboarding/build");
       }
     });
-    void api.getTestChatHistory().then((history) => setMessages(history));
+    void api.getTestChatHistory().then((history) => {
+      setMessages(history);
+      setHistoryLoaded(true);
+    });
   }, [router]);
+
+  useEffect(() => {
+    if (!historyLoaded) return;
+    if (!messages.length && !sending) return;
+
+    const behavior: ScrollBehavior = initialScrollDone.current ? "smooth" : "auto";
+    initialScrollDone.current = true;
+
+    const frame = requestAnimationFrame(() => {
+      scrollToBottom(behavior);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [messages, sending, historyLoaded, scrollToBottom]);
 
   const placeholder = useMemo(
     () =>
@@ -36,7 +67,7 @@ export default function TestChatPage() {
   );
 
   const sendMessage = async () => {
-    if (!input.trim()) return;
+    if (!input.trim() || sending) return;
     const text = input.trim();
     setInput("");
     setSending(true);
@@ -44,9 +75,12 @@ export default function TestChatPage() {
       ...prev,
       { id: `local_${Date.now()}`, role: "user", text, createdAt: new Date().toISOString() },
     ]);
-    const response = await api.sendTestChatMessage(text);
-    setMessages((prev) => [...prev, response.reply]);
-    setSending(false);
+    try {
+      const response = await api.sendTestChatMessage(text);
+      setMessages((prev) => [...prev, response.reply]);
+    } finally {
+      setSending(false);
+    }
   };
 
   return (
@@ -55,7 +89,10 @@ export default function TestChatPage() {
         <CardTitle>{t("Test chat", "צ׳אט בדיקה")}</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-1 flex-col gap-4 overflow-hidden p-0">
-        <div className="flex-1 space-y-4 overflow-y-auto p-4">
+        <div
+          ref={scrollContainerRef}
+          className="scrollbar-premium flex-1 space-y-4 overflow-y-auto p-4"
+        >
           {messages.map((message) => (
             <div
               key={message.id}
@@ -92,7 +129,14 @@ export default function TestChatPage() {
               ) : null}
             </div>
           ))}
-          {!messages.length ? (
+
+          {sending ? (
+            <div className="flex items-start">
+              <ChatTypingIndicator />
+            </div>
+          ) : null}
+
+          {!messages.length && !sending ? (
             <p className="text-sm text-muted-foreground">
               {t(
                 "Start by asking for a product, price, or delivery policy.",
@@ -100,6 +144,8 @@ export default function TestChatPage() {
               )}
             </p>
           ) : null}
+
+          <div ref={bottomRef} className="h-px shrink-0" aria-hidden />
         </div>
 
         <div className="border-t p-4">
@@ -108,6 +154,7 @@ export default function TestChatPage() {
               value={input}
               onChange={(event) => setInput(event.target.value)}
               placeholder={placeholder}
+              disabled={sending}
               onKeyDown={(event) => {
                 if (event.key === "Enter") {
                   event.preventDefault();
@@ -115,7 +162,7 @@ export default function TestChatPage() {
                 }
               }}
             />
-            <Button onClick={sendMessage} disabled={sending || !input.trim()}>
+            <Button onClick={() => void sendMessage()} disabled={sending || !input.trim()}>
               <SendHorizonal className="size-4" />
             </Button>
           </div>
