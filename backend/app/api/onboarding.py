@@ -22,6 +22,7 @@ from app.api.schemas import (
     WhatsAppConnectRequest,
     WhatsAppStatusResponse,
 )
+from app.core.business_info import dedupe_business_info_payload, dedupe_business_info_rows
 from app.core.config import get_settings
 from app.core.crypto import encrypt_token
 from app.core.db import get_session
@@ -158,13 +159,21 @@ async def get_business_info(
         .order_by(BusinessInfo.created_at.asc())
     )
     rows = result.scalars().all()
+    deduped = dedupe_business_info_rows(rows)
+    if len(deduped) < len(rows):
+        keep_ids = {row.id for row in deduped}
+        for row in rows:
+            if row.id not in keep_ids:
+                await session.delete(row)
+        await session.commit()
+
     return [
         BusinessInfoItem(
             topic=row.topic,
             content_he=row.content_he or "",
             content_en=row.content_en or "",
         )
-        for row in rows
+        for row in deduped
     ]
 
 
@@ -175,8 +184,9 @@ async def save_business_info(
     session: AsyncSession = Depends(get_session),
 ) -> list[BusinessInfoItem]:
     tenant_id = require_tenant(ctx)
+    normalized = dedupe_business_info_payload(payload, topic_getter=lambda item: item.topic)
     await session.execute(delete(BusinessInfo).where(BusinessInfo.tenant_id == tenant_id))
-    for item in payload:
+    for item in normalized:
         session.add(
             BusinessInfo(
                 tenant_id=tenant_id,
@@ -186,7 +196,7 @@ async def save_business_info(
             )
         )
     await session.commit()
-    return payload
+    return normalized
 
 
 @router.get("/products", response_model=list[ProductResponse])

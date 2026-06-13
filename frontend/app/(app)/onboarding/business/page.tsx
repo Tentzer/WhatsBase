@@ -10,18 +10,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api";
+import { DEFAULT_BUSINESS_INFO_BLOCKS, normalizeBusinessInfoBlocks } from "@/lib/business-info";
 import { useLocale } from "@/lib/locale";
 import { createClient } from "@/lib/supabase/client";
 import { useOnboardingStore } from "@/lib/store";
 import type { BusinessInfoBlock } from "@/lib/types";
-
-const defaultBlocks: BusinessInfoBlock[] = [
-  { topic: "hours", content_he: "", content_en: "" },
-  { topic: "location", content_he: "", content_en: "" },
-  { topic: "policy", content_he: "", content_en: "" },
-  { topic: "faq", content_he: "", content_en: "" },
-  { topic: "other", content_he: "", content_en: "" },
-];
 
 function classifyApiError(err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err);
@@ -42,7 +35,9 @@ export default function BusinessOnboardingPage() {
   const { tenant, setTenant, businessInfo, setBusinessInfo } = useOnboardingStore();
   const [tenantName, setTenantName] = useState(tenant?.name ?? "");
   const [tenantDescription, setTenantDescription] = useState(tenant?.description ?? "");
-  const [blocks, setBlocks] = useState<BusinessInfoBlock[]>(businessInfo.length ? businessInfo : defaultBlocks);
+  const [blocks, setBlocks] = useState<BusinessInfoBlock[]>(
+    businessInfo.length ? normalizeBusinessInfoBlocks(businessInfo) : DEFAULT_BUSINESS_INFO_BLOCKS,
+  );
   const [saving, setSaving] = useState(false);
   const [hydrating, setHydrating] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -63,9 +58,11 @@ export default function BusinessOnboardingPage() {
       if (me.tenant) {
         setTenant(me.tenant);
       }
-      if (!businessInfo.length && me.tenant) {
+      if (me.tenant) {
         const info = await api.getBusinessInfo();
-        setBlocks(info.length ? info : defaultBlocks);
+        const normalized = normalizeBusinessInfoBlocks(info);
+        setBlocks(normalized);
+        setBusinessInfo(normalized);
       }
     } catch (error) {
       console.error("Failed to load onboarding business data:", error);
@@ -73,7 +70,7 @@ export default function BusinessOnboardingPage() {
     } finally {
       setHydrating(false);
     }
-  }, [businessInfo.length, navigate, setTenant, supabase]);
+  }, [navigate, setBusinessInfo, setTenant, supabase]);
 
   useEffect(() => {
     const bootstrapTimer = window.setTimeout(() => {
@@ -90,8 +87,10 @@ export default function BusinessOnboardingPage() {
     try {
       const resolvedTenant = await api.createTenant(tenantName.trim(), tenantDescription.trim());
       setTenant(resolvedTenant);
-      const saved = await api.saveBusinessInfo(blocks);
-      setBusinessInfo(saved);
+      const saved = await api.saveBusinessInfo(normalizeBusinessInfoBlocks(blocks));
+      const normalized = normalizeBusinessInfoBlocks(saved);
+      setBusinessInfo(normalized);
+      setBlocks(normalized);
       navigate("/onboarding/products");
     } catch (error) {
       console.error("Failed to save business onboarding data:", error);
@@ -101,10 +100,10 @@ export default function BusinessOnboardingPage() {
     }
   };
 
-  const updateBlock = (index: number, field: "content_en" | "content_he", value: string) => {
-    const next = [...blocks];
-    next[index] = { ...next[index], [field]: value };
-    setBlocks(next);
+  const updateBlock = (topic: BusinessInfoBlock["topic"], field: "content_en" | "content_he", value: string) => {
+    setBlocks((prev) =>
+      prev.map((item) => (item.topic === topic ? { ...item, [field]: value } : item)),
+    );
   };
 
   if (hydrating) {
@@ -191,15 +190,15 @@ export default function BusinessOnboardingPage() {
             </p>
           </div>
 
-          {blocks.map((block, index) => (
-            <div key={`${block.topic}-${index}`} className="grid gap-3 rounded-lg border p-4">
+          {blocks.map((block) => (
+            <div key={block.topic} className="grid gap-3 rounded-lg border p-4">
               <p className="text-sm font-medium uppercase tracking-wide text-muted-foreground">{block.topic}</p>
               <div className="grid gap-3 md:grid-cols-2">
                 <div className="space-y-2">
                   <Label>{t("English", "אנגלית")}</Label>
                   <Textarea
                     value={block.content_en}
-                    onChange={(event) => updateBlock(index, "content_en", event.target.value)}
+                    onChange={(event) => updateBlock(block.topic, "content_en", event.target.value)}
                     placeholder={t("Write in English...", "כתיבה באנגלית...")}
                   />
                 </div>
@@ -207,7 +206,7 @@ export default function BusinessOnboardingPage() {
                   <Label>{t("Hebrew", "עברית")}</Label>
                   <Textarea
                     value={block.content_he}
-                    onChange={(event) => updateBlock(index, "content_he", event.target.value)}
+                    onChange={(event) => updateBlock(block.topic, "content_he", event.target.value)}
                     placeholder={t("Write in Hebrew...", "כתיבה בעברית...")}
                   />
                 </div>

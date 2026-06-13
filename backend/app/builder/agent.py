@@ -217,16 +217,21 @@ async def _api_catalog_pipeline(ctx: BuildContext, business_name: str) -> None:
     bi_result = await ctx.session.execute(
         select(BusinessInfo).where(BusinessInfo.tenant_id == ctx.tenant_id)
     )
-    for bi in bi_result.scalars().all():
-        from app.builder.context import BusinessInfoItem
+    from app.builder.context import BusinessInfoItem
+    from app.core.business_info import dedupe_business_info_payload
 
-        ctx.business_info_items.append(
-            BusinessInfoItem(
-                topic=bi.topic,
-                content_he=bi.content_he or "",
-                content_en=bi.content_en or "",
-            )
+    loaded_items = [
+        BusinessInfoItem(
+            topic=bi.topic,
+            content_he=bi.content_he or "",
+            content_en=bi.content_en or "",
         )
+        for bi in bi_result.scalars().all()
+    ]
+    ctx.business_info_items = dedupe_business_info_payload(
+        loaded_items,
+        topic_getter=lambda item: item.topic,
+    )
 
     await _update_build_progress(ctx, step="collect_assets", progress_pct=15)
     await _backfill_tenant_product_images(ctx)

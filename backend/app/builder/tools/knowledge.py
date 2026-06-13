@@ -9,6 +9,7 @@ from sqlalchemy import delete, select, text, update
 
 from app.builder.context import BuildContext, BusinessInfoItem
 from app.builder.prompts import render_conversation_prompt
+from app.core.business_info import dedupe_business_info_payload
 from app.core.schema import Agent, BusinessInfo, Embedding, Product, Tenant
 
 logger = logging.getLogger(__name__)
@@ -103,10 +104,14 @@ async def index_embeddings(ctx: BuildContext) -> str:
 
     # --- Write business_info rows (delete-then-insert for idempotency) ---
     if ctx.business_info_items:
+        unique_items = dedupe_business_info_payload(
+            ctx.business_info_items,
+            topic_getter=lambda item: item.topic,
+        )
         await session.execute(
             delete(BusinessInfo).where(BusinessInfo.tenant_id == tenant_id)
         )
-        for item in ctx.business_info_items:
+        for item in unique_items:
             session.add(
                 BusinessInfo(
                     tenant_id=tenant_id,
