@@ -205,6 +205,81 @@ async def index_embeddings(ctx: BuildContext) -> str:
     return json.dumps({"status": "ok", "promoted": staged})
 
 
+async def index_new_product_embeddings(ctx: BuildContext) -> str:
+    """Embed only products that do not yet have an active embedding row.
+
+    Skips system-prompt regeneration and leaves existing embeddings untouched —
+    used when the owner adds new catalog items without changing business info.
+    """
+    from app.retrieval.embed import embed_query
+
+    if ctx.dry_run:
+        logger.info(
+            "[dry-run] would index new product embeddings for tenant=%s — skipping",
+            ctx.tenant_id,
+        )
+        return json.dumps({"status": "ok", "promoted": 0, "new_products": 0, "dry_run": True})
+
+    session = ctx.session
+    tenant_id = ctx.tenant_id
+
+    products_result = await session.execute(
+        select(Product).where(Product.tenant_id == tenant_id)
+    )
+    products = products_result.scalars().all()
+
+    embedded_ids = {
+        row
+        for row in (
+            await session.execute(
+                select(Embedding.ref_id).where(
+                    Embedding.tenant_id == tenant_id,
+                    Embedding.ref_type == "product",
+                    Embedding.status == "active",
+                )
+            )
+        ).scalars().all()
+    }
+
+    new_products = [p for p in products if str(p.id) not in embedded_ids]
+    if not new_products:
+        logger.info("index_new_product_embeddings: no new products for tenant=%s", tenant_id)
+        return json.dumps({"status": "ok", "promoted": 0, "new_products": 0})
+
+    promoted = 0
+    for product in new_products:
+        content = _product_embedding_text(product)
+        vector = await embed_query(content)
+        colors = product.attributes.get("colors", []) if product.attributes else []
+        embedding_meta = {
+            "category": product.category or "",
+            "colors": colors if isinstance(colors, list) else [],
+            "in_stock": bool(product.in_stock),
+            "price": float(product.price) if product.price is not None else None,
+        }
+        session.add(
+            Embedding(
+                tenant_id=tenant_id,
+                ref_type="product",
+                ref_id=str(product.id),
+                content=content,
+                vector=vector,
+                embedding_metadata=embedding_meta,
+                status="active",
+            )
+        )
+        promoted += 1
+
+    await session.commit()
+    ctx.report.embeddings = {"staged": promoted, "promoted": promoted, "incremental": True}
+    logger.info(
+        "index_new_product_embeddings: added %d embeddings for tenant=%s",
+        promoted,
+        tenant_id,
+    )
+    return json.dumps({"status": "ok", "promoted": promoted, "new_products": promoted})
+
+
 def _product_embedding_text(product: Product) -> str:
     parts = [
         product.name_en or "",

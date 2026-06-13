@@ -27,6 +27,7 @@ interface ApiClient {
   connectWhatsApp: (payload: WhatsAppConnectRequest) => Promise<WhatsAppConnection>;
   getWhatsAppStatus: () => Promise<WhatsAppConnection>;
   startBuild: () => Promise<BuildRun>;
+  startIncrementalBuild: () => Promise<BuildRun>;
   getBuildRun: (buildRunId: string) => Promise<BuildRun | undefined>;
   getLatestBuildRun: () => Promise<BuildRun | undefined>;
   setBuildState: (
@@ -446,6 +447,11 @@ const realApi: ApiClient = {
   },
   startBuild: async (): Promise<BuildRun> => {
     const res = await requestJson<ApiBuildRun>("/api/build", { method: "POST" });
+    activeBuildRunId = res.id;
+    return mapBuildRunFromApi(res);
+  },
+  startIncrementalBuild: async (): Promise<BuildRun> => {
+    const res = await requestJson<ApiBuildRun>("/api/build/incremental", { method: "POST" });
     activeBuildRunId = res.id;
     return mapBuildRunFromApi(res);
   },

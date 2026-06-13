@@ -399,3 +399,101 @@ async def run_build(ctx: dict, payload: dict) -> None:
     except Exception as exc:  # noqa: BLE001
         logger.exception("run_build failed for tenant=%s", tenant_id)
         await _fail_build(tenant_id, build_run_id, str(exc))
+
+
+async def run_incremental_build(ctx: dict, payload: dict) -> None:
+    """Embed only newly added products — no system-prompt regeneration.
+
+    Used after the owner adds catalog items while the agent is already live.
+    Existing embeddings and the system prompt are left unchanged.
+    """
+    import json
+    from pathlib import Path
+
+    from app.builder.context import BuildContext
+    from app.builder.tools.knowledge import index_new_product_embeddings
+
+    tenant_id = payload["tenant_id"]
+    build_run_id = payload.get("build_run_id")
+    settings = get_settings()
+
+    if not settings.openai_api_key:
+        logger.error("run_incremental_build: missing OPENAI_API_KEY for tenant=%s", tenant_id)
+        async with SessionLocal() as session:
+            await _update_build_run(
+                session,
+                build_run_id,
+                tenant_id,
+                status="failed",
+                progress=100,
+                step="index_embeddings",
+                error="Missing OPENAI_API_KEY",
+            )
+        return
+
+    try:
+        async with SessionLocal() as session:
+            agent = (
+                await session.execute(select(Agent).where(Agent.tenant_id == tenant_id))
+            ).scalar_one_or_none()
+            if agent is None or agent.status != "live" or not agent.system_prompt:
+                await _update_build_run(
+                    session,
+                    build_run_id,
+                    tenant_id,
+                    status="failed",
+                    progress=100,
+                    step="index_embeddings",
+                    error="Agent must be live before incremental indexing",
+                )
+                return
+
+            await _update_build_run(
+                session,
+                build_run_id,
+                tenant_id,
+                status="running",
+                progress=30,
+                step="index_embeddings",
+            )
+
+            build_ctx = BuildContext(
+                tenant_id=tenant_id,
+                assets_dir=Path("."),
+                dry_run=False,
+                session=session,
+            )
+            result = json.loads(await index_new_product_embeddings(build_ctx))
+            new_count = int(result.get("new_products", 0))
+
+            await _update_build_run(
+                session,
+                build_run_id,
+                tenant_id,
+                status="passed",
+                progress=100,
+                step="finalize",
+                extra_report={
+                    "mode": "incremental",
+                    "new_products_indexed": new_count,
+                    "products_detected": new_count,
+                    "products_created": new_count,
+                },
+            )
+        logger.info(
+            "run_incremental_build: tenant=%s indexed %d new product(s)",
+            tenant_id,
+            new_count,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("run_incremental_build failed for tenant=%s", tenant_id)
+        async with SessionLocal() as session:
+            await _update_build_run(
+                session,
+                build_run_id,
+                tenant_id,
+                status="failed",
+                progress=100,
+                step="index_embeddings",
+                error=str(exc),
+            )

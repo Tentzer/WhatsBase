@@ -30,6 +30,7 @@ class WorkerSettings:
         _tasks.run_agent_turn,
         _tasks.send_outgoing,
         _tasks.run_build,
+        _tasks.run_incremental_build,
     ]
     redis_settings = _redis_settings()
 

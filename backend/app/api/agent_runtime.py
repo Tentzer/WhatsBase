@@ -390,6 +390,50 @@ async def start_build(
     return _map_build_run(build_run)
 
 
+@router.post("/build/incremental", response_model=BuildRunResponse)
+async def start_incremental_build(
+    ctx: AuthContext = Depends(get_auth_context),
+    session: AsyncSession = Depends(get_session),
+) -> BuildRunResponse:
+    """Index embeddings for newly added products only (agent stays live)."""
+    tenant_id = require_tenant(ctx)
+
+    agent_result = await session.execute(select(Agent).where(Agent.tenant_id == tenant_id))
+    agent = agent_result.scalar_one_or_none()
+    if agent is None or agent.status != "live":
+        raise HTTPException(
+            status_code=400,
+            detail="Complete a full build before indexing new products.",
+        )
+
+    build_run = BuildRun(
+        tenant_id=tenant_id,
+        status="queued",
+        input_manifest={"source": "api", "mode": "incremental"},
+        report={"ui_progress_pct": 10, "ui_current_step": "index_embeddings"},
+        started_at=datetime.now(timezone.utc),
+    )
+    session.add(build_run)
+    await session.commit()
+    await session.refresh(build_run)
+
+    try:
+        redis = await get_redis_pool()
+        try:
+            await redis.enqueue_job(
+                "run_incremental_build",
+                {"tenant_id": tenant_id, "build_run_id": build_run.id},
+            )
+        finally:
+            await redis.aclose()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "Unable to enqueue run_incremental_build for tenant=%s: %s", tenant_id, exc
+        )
+
+    return _map_build_run(build_run)
+
+
 @router.get("/build-runs/{build_run_id}", response_model=BuildRunResponse)
 async def get_build_run(
     build_run_id: str,

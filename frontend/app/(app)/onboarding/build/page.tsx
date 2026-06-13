@@ -63,18 +63,19 @@ export default function BuildPage() {
   const isLive = agentStatus === "live" || run?.status === "passed";
   const buildInProgress = running || run?.status === "running" || run?.status === "queued";
 
-  const startBuild = async () => {
+  const runBuild = async (mode: "full" | "incremental") => {
     setRunning(true);
     setError(null);
     setRun(null);
     try {
-      const started = await api.startBuild();
+      const started =
+        mode === "full" ? await api.startBuild() : await api.startIncrementalBuild();
       setRun(started);
       const finalRun = await pollBuildRun(started.id, setRun);
       setRun(finalRun);
       if (finalRun.status === "passed") {
         setAgentStatus("live");
-      } else if (finalRun.status === "failed") {
+      } else if (finalRun.status === "failed" && mode === "full") {
         setAgentStatus("failed");
       }
       if (finalRun.status === "failed") {
@@ -91,6 +92,9 @@ export default function BuildPage() {
       setRunning(false);
     }
   };
+
+  const startBuild = () => runBuild("full");
+  const startIncrementalBuild = () => runBuild("incremental");
 
   const stepLabel = useMemo(() => {
     if (!run?.currentStep) return t("Waiting to start", "ממתין להתחלה");
@@ -151,9 +155,23 @@ export default function BuildPage() {
           ) : null}
 
           {!buildInProgress ? (
-            <Button className="bg-emerald-600 hover:bg-emerald-700" onClick={startBuild} disabled={running}>
-              {buildButtonLabel}
-            </Button>
+            <div className="flex flex-wrap gap-3">
+              <Button className="bg-emerald-600 hover:bg-emerald-700" onClick={startBuild} disabled={running}>
+                {buildButtonLabel}
+              </Button>
+              {isLive ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={startIncrementalBuild}
+                  disabled={running}
+                >
+                  {running
+                    ? t("Starting...", "מתחיל...")
+                    : t("Rebuild with new data", "בנייה מחדש עם מוצרים חדשים")}
+                </Button>
+              ) : null}
+            </div>
           ) : null}
 
           {error ? (

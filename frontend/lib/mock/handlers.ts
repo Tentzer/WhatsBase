@@ -216,6 +216,25 @@ export const mockApi = {
     return run;
   },
 
+  async startIncrementalBuild(): Promise<BuildRun> {
+    const createdAt = nowIso();
+    const run: BuildRun = {
+      id: randomId("build"),
+      status: "running",
+      currentStep: "index_embeddings",
+      progressPct: 30,
+      createdAt,
+      updatedAt: createdAt,
+    };
+    updateState((prev) => ({ ...prev, buildRun: run }));
+
+    window.setTimeout(() => {
+      advanceMockBuild("passed", 100, "finalize");
+    }, 2500);
+
+    return run;
+  },
+
   async getBuildRun(buildRunId: string): Promise<BuildRun | undefined> {
     const run = loadState().buildRun;
     if (!run || run.id !== buildRunId) return undefined;
