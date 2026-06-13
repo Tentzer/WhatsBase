@@ -12,12 +12,36 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import tempfile
+from io import BytesIO
+from urllib.parse import urlparse
 
+import httpx
+from PIL import Image
 from whatsapp_api_client_python import API
 
 from .base import IncomingMessage, MessageType, WhatsAppAdapter
 
 logger = logging.getLogger(__name__)
+
+# Green API: jpg/png are fully supported; webp needs a workaround (convert before send).
+_NATIVE_IMAGE_EXTS = frozenset({"jpg", "jpeg", "png", "gif", "bmp"})
+_CONVERT_TO_JPEG_EXTS = frozenset({"webp", "avif", "heif", "heic", "ico"})
+
+
+def _url_filename(image_url: str) -> str:
+    path = urlparse(image_url).path
+    return path.rsplit("/", 1)[-1] or "image.jpg"
+
+
+def _needs_jpeg_conversion(filename: str) -> bool:
+    if "." not in filename:
+        return True
+    ext = filename.rsplit(".", 1)[-1].lower()
+    if ext in _CONVERT_TO_JPEG_EXTS:
+        return True
+    return ext not in _NATIVE_IMAGE_EXTS
 
 
 class GreenApiAdapter(WhatsAppAdapter):
@@ -148,7 +172,11 @@ class GreenApiAdapter(WhatsAppAdapter):
             )
 
     async def send_image(self, chat_id: str, image_url: str, caption: str = "") -> None:
-        filename = image_url.rsplit("/", 1)[-1] or "image.jpg"
+        filename = _url_filename(image_url)
+        if _needs_jpeg_conversion(filename):
+            await self._send_image_as_jpeg_upload(chat_id, image_url, filename, caption)
+            return
+
         response = await asyncio.to_thread(
             self._client.sending.sendFileByUrl, chat_id, image_url, filename, caption
         )
@@ -158,3 +186,46 @@ class GreenApiAdapter(WhatsAppAdapter):
                 chat_id,
                 response.code if response else "no-response",
             )
+
+    async def _send_image_as_jpeg_upload(
+        self, chat_id: str, image_url: str, filename: str, caption: str
+    ) -> None:
+        """Download non-native formats (webp, etc.) and upload as JPEG for WhatsApp."""
+        try:
+            async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+                resp = await client.get(image_url)
+                resp.raise_for_status()
+                raw = resp.content
+        except Exception:
+            logger.exception("send_image: failed to download %s", image_url)
+            return
+
+        try:
+            image = Image.open(BytesIO(raw))
+            if image.mode in ("RGBA", "P", "LA"):
+                image = image.convert("RGB")
+            elif image.mode != "RGB":
+                image = image.convert("RGB")
+        except Exception:
+            logger.exception("send_image: failed to decode image from %s", image_url)
+            return
+
+        stem = filename.rsplit(".", 1)[0] if "." in filename else filename
+        out_name = f"{stem}.jpg"
+        tmp_path: str | None = None
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+                image.save(tmp, format="JPEG", quality=90, optimize=True)
+                tmp_path = tmp.name
+            response = await asyncio.to_thread(
+                self._client.sending.sendFileByUpload, chat_id, tmp_path, out_name, caption
+            )
+            if response is None or response.code not in (200, 201):
+                logger.warning(
+                    "send_image upload to %s may have failed: status=%s",
+                    chat_id,
+                    response.code if response else "no-response",
+                )
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                os.unlink(tmp_path)
