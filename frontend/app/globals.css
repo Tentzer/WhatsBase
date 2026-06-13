@@ -220,7 +220,18 @@ html.dark {
 
 .chat-message-text {
   width: 100%;
-  unicode-bidi: plaintext;
+}
+
+.chat-message-text[dir="rtl"] {
+  direction: rtl;
+  text-align: right;
+  unicode-bidi: isolate;
+}
+
+.chat-message-text[dir="ltr"] {
+  direction: ltr;
+  text-align: left;
+  unicode-bidi: isolate;
 }
 
 @keyframes chat-typing-bounce {

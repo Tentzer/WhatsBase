@@ -10,8 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api";
 import { useLocale } from "@/lib/locale";
-import { getMessageDirection, messageTextAlignClass } from "@/lib/text-direction";
-import { cn } from "@/lib/utils";
+import { formatMessageText, getMessageDirection, messageTextStyle } from "@/lib/text-direction";
 import type { TestChatMessage } from "@/lib/types";
 
 export default function TestChatPage() {
@@ -107,20 +106,16 @@ export default function TestChatPage() {
               className={`flex flex-col gap-3 ${message.role === "user" ? "items-end" : "items-start"}`}
             >
               <div
+                dir={messageDir}
+                style={messageTextStyle(messageDir)}
                 className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed shadow-sm ${
                   message.role === "user"
                     ? "bg-emerald-600 text-white"
                     : "border border-border/60 bg-muted/80 text-foreground"
                 }`}
               >
-                <p
-                  dir={messageDir}
-                  className={cn(
-                    "chat-message-text whitespace-pre-wrap",
-                    messageTextAlignClass(messageDir),
-                  )}
-                >
-                  {message.text}
+                <p className="chat-message-text whitespace-pre-wrap">
+                  {formatMessageText(message.text, messageDir)}
                 </p>
               </div>
 
@@ -173,7 +168,8 @@ export default function TestChatPage() {
               placeholder={placeholder}
               dir={inputDir}
               disabled={sending}
-              className={cn("chat-message-text", messageTextAlignClass(inputDir))}
+              style={messageTextStyle(inputDir)}
+              className="chat-message-text"
               onKeyDown={(event) => {
                 if (event.key === "Enter") {
                   event.preventDefault();

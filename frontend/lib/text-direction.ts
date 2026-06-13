@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import type { Locale } from "@/lib/types";
 
 /** Hebrew, Arabic, and related RTL scripts. */
@@ -10,6 +11,9 @@ const LTR_CHAR = /[A-Za-z\u00C0-\u024F]/;
 /** Invisible marks that can force the wrong direction in mixed text. */
 const BIDI_MARKS = /[\u200E\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g;
 
+/** Right-to-left mark — forces RTL when the first visible chars are neutral (!, digits, etc.). */
+const RTL_MARK = "\u200F";
+
 function stripBidiMarks(text: string): string {
   return text.replace(BIDI_MARKS, "");
 }
@@ -19,8 +23,10 @@ function stripBidiMarks(text: string): string {
  * Prefers RTL when Hebrew is present; falls back to UI locale.
  */
 export function getMessageDirection(text: string, locale: Locale = "en"): "rtl" | "ltr" {
+  if (locale === "he") return "rtl";
+
   const trimmed = stripBidiMarks(text).trim();
-  if (!trimmed) return locale === "he" ? "rtl" : "ltr";
+  if (!trimmed) return "ltr";
 
   let rtlCount = 0;
   let ltrCount = 0;
@@ -37,9 +43,21 @@ export function getMessageDirection(text: string, locale: Locale = "en"): "rtl" 
   if (ltrCount > rtlCount) return "ltr";
   if (rtlCount > 0) return "rtl";
 
-  return locale === "he" ? "rtl" : "ltr";
+  return "ltr";
 }
 
-export function messageTextAlignClass(direction: "rtl" | "ltr"): string {
-  return direction === "rtl" ? "text-right" : "text-left";
+/** Normalize text for display and prepend an RTL mark when needed. */
+export function formatMessageText(text: string, direction: "rtl" | "ltr"): string {
+  const cleaned = stripBidiMarks(text);
+  if (direction !== "rtl") return cleaned;
+  if (cleaned.startsWith(RTL_MARK)) return cleaned;
+  return `${RTL_MARK}${cleaned}`;
+}
+
+export function messageTextStyle(direction: "rtl" | "ltr"): CSSProperties {
+  return {
+    direction,
+    textAlign: direction === "rtl" ? "right" : "left",
+    unicodeBidi: "isolate",
+  };
 }
