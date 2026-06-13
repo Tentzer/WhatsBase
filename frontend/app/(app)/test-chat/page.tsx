@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api";
 import { useLocale } from "@/lib/locale";
+import { getMessageDirection } from "@/lib/text-direction";
 import type { TestChatMessage } from "@/lib/types";
 
 export default function TestChatPage() {
@@ -91,21 +92,26 @@ export default function TestChatPage() {
       <CardContent className="flex flex-1 flex-col gap-4 overflow-hidden p-0">
         <div
           ref={scrollContainerRef}
+          dir="ltr"
           className="scrollbar-premium flex-1 space-y-4 overflow-y-auto p-4"
         >
-          {messages.map((message) => (
+          {messages.map((message) => {
+            const messageDir = getMessageDirection(message.text);
+
+            return (
             <div
               key={message.id}
               className={`flex flex-col gap-3 ${message.role === "user" ? "items-end" : "items-start"}`}
             >
               <div
+                dir={messageDir}
                 className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed shadow-sm ${
                   message.role === "user"
                     ? "bg-emerald-600 text-white"
                     : "border border-border/60 bg-muted/80 text-foreground"
                 }`}
               >
-                <p className="whitespace-pre-wrap">{message.text}</p>
+                <p className="whitespace-pre-wrap text-start">{message.text}</p>
               </div>
 
               {message.role === "assistant" && message.cards?.length ? (
@@ -128,7 +134,8 @@ export default function TestChatPage() {
                 </div>
               ) : null}
             </div>
-          ))}
+            );
+          })}
 
           {sending ? (
             <div className="flex items-start">
@@ -154,7 +161,9 @@ export default function TestChatPage() {
               value={input}
               onChange={(event) => setInput(event.target.value)}
               placeholder={placeholder}
+              dir={getMessageDirection(input)}
               disabled={sending}
+              className="text-start"
               onKeyDown={(event) => {
                 if (event.key === "Enter") {
                   event.preventDefault();
