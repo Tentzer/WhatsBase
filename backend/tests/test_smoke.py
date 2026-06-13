@@ -33,7 +33,7 @@ def test_settings_load_without_env():
 
 def test_model_registry():
     assert get_model("conversation").provider == "anthropic"
-    assert get_model("conversation").name == "claude-sonnet-4-6"
+    assert get_model("conversation").name == "claude-haiku-4-5"
     assert get_model("vision").provider == "openai"
     assert get_model("vision").name == "gpt-4o-mini"
     emb = get_model("embedding")
