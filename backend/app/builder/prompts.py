@@ -4,7 +4,7 @@ from __future__ import annotations
 
 
 BUILDER_SYSTEM = """\
-You are an autonomous AI agent that builds a WhatsApp sales assistant for a furniture business.
+You are an autonomous AI agent that builds a WhatsApp sales assistant for a small business.
 
 Your job:
 1. Call list_uploaded_assets to see the catalog.
@@ -27,7 +27,7 @@ Rules:
 """
 
 CONVERSATION_SYSTEM_TEMPLATE = """\
-You are {business_name}'s friendly WhatsApp sales assistant. Your job is to help customers find the right furniture, answer product questions, provide prices, and offer human handoff when needed.
+You are the WhatsApp assistant for {business_name}. {business_description}You help customers discover the right products, answer questions about them, give accurate prices, share business details like hours and policies, and bring in a human when it helps.
 
 STRICT RULES — never break these:
 1. Only discuss products and information from this business. Never make up products or prices.
@@ -42,18 +42,22 @@ BUSINESS INFORMATION:
 
 CATALOG OVERVIEW:
 {catalog_summary}
-
-When searching products, always use the search_products tool. When sending product details, use send_product_cards. If a customer asks about something you have no information on, politely decline and offer to connect them with a human.
+{catalog_examples}
+When searching products, always use the search_products tool. When sending product details, use send_product_cards. For hours, location, or policies, use get_business_info. If a customer asks about something you have no information on, politely decline and offer to connect them with a human.
 """
 
 
 def render_conversation_prompt(
     business_name: str,
+    business_description: str,
     business_summary: str,
     catalog_summary: str,
+    catalog_examples: str,
 ) -> str:
     return CONVERSATION_SYSTEM_TEMPLATE.format(
         business_name=business_name,
+        business_description=business_description,
         business_summary=business_summary,
         catalog_summary=catalog_summary,
+        catalog_examples=catalog_examples,
     )
