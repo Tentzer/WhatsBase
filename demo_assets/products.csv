@@ -1,6 +1,7 @@
 stable_key,name_he,name_en,category,price,currency,in_stock,colors,materials,style,image
 sofa-white-3seat,ספה לבנה תלת מושבית,White 3-Seater Sofa,sofa,3990,ILS,true,white,fabric,modern,sofa-white-3seat.jpg
 sofa-gray-2seat,ספה אפורה דו מושבית,Gray 2-Seater Sofa,sofa,2890,ILS,true,gray,fabric,scandinavian,sofa-gray-2seat.jpg
+sofa-cream-2seat,ספה קרם דו מושבית,Cream 2-Seater Sofa,sofa,2290,ILS,false,cream,fabric,modern,sofa-cream-2seat.webp
 armchair-leather-brown,כורסת עור חומה,Brown Leather Armchair,armchair,2490,ILS,true,brown,leather,classic,armchair-leather-brown.jpg
 coffee-table-oak,שולחן קפה עץ אלון,Oak Coffee Table,table,1290,ILS,true,natural,oak wood,rustic,coffee-table-oak.jpg
 dining-table-walnut,שולחן אוכל אגוז,Walnut Dining Table,table,4590,ILS,true,dark brown,walnut wood,modern,dining-table-walnut.jpg

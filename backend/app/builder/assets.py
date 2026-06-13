@@ -46,7 +46,7 @@ def load_assets(assets_dir: Path) -> tuple[list[Asset], list[str]]:
         with csv_path.open(newline="", encoding="utf-8") as fh:
             reader = csv.DictReader(fh)
             for row in reader:
-                filename = row.get("image_filename", "").strip()
+                filename = (row.get("image") or row.get("image_filename") or "").strip()
                 stem = Path(filename).stem.lower()
                 if stem:
                     csv_rows[stem] = row
