@@ -271,6 +271,31 @@ def _detect_hebrew(text: str) -> bool:
     return bool(re.search(r"[\u0590-\u05FF]", text))
 
 
+_CASUAL_GREETING_RE = re.compile(
+    r"^(?:"
+    # Hebrew greetings / small talk
+    r"מה\s*נשמע|מה\s*קורה|מה\s*המצב|מה\s*עושה|"
+    r"שלום(?:\s+עולם)?|היי|הי|בוקר\s*טוב|ערב\s*טוב|לילה\s*טוב|"
+    r"תודה(?:\s*רבה)?|תודה\s*על\s*הכל|"
+    # English greetings / small talk
+    r"hi|hello|hey|yo|sup|thanks?|thank\s*you|thx|"
+    r"how(?:'s|\s+is)\s+it\s+going|how\s+are\s+you(?:\s+doing)?|"
+    r"what'?s\s+up|good\s+(?:morning|evening|afternoon|night)"
+    r")(?:[!?.…,]*)$",
+    re.IGNORECASE | re.UNICODE,
+)
+
+
+def _is_casual_greeting(text: str) -> bool:
+    """True when the message is small talk — skip catalog retrieval and product cards."""
+    normalized = text.strip()
+    if not normalized:
+        return True
+    if len(normalized) <= 4 and normalized.casefold() in {"hi", "hey", "yo", "ok", "הי", "היי"}:
+        return True
+    return bool(_CASUAL_GREETING_RE.match(normalized))
+
+
 def _format_catalog_context(hits: list[ProductHit]) -> str:
     if not hits:
         return "(no matching products found)"
@@ -296,6 +321,7 @@ def _build_cards_from_hits(hits: list[ProductHit]) -> list[ProductCardResponse] 
             name_en=hit.name_en or "",
             price=float(hit.price or 0),
             currency=hit.currency,
+            category=hit.category,
         )
         for hit in hits[:3]
     ]
@@ -311,8 +337,15 @@ async def _generate_agent_reply(
     recent_messages: list[Message],
 ) -> tuple[str, list[ProductCardResponse] | None]:
     update_trace(tenant_id=tenant_id)
-    hits = await retrieval_search(tenant_id=tenant_id, query=user_text, k=3)
-    cards = _build_cards_from_hits(hits)
+    search_catalog = not _is_casual_greeting(user_text)
+    if search_catalog:
+        hits = await retrieval_search(tenant_id=tenant_id, query=user_text, k=3)
+        cards = _build_cards_from_hits(hits)
+        catalog_context = _format_catalog_context(hits)
+    else:
+        hits = []
+        cards = None
+        catalog_context = "(no catalog lookup — casual greeting; reply warmly without listing products)"
 
     model_cfg = get_model("conversation")
     conversation_system = system_prompt
@@ -321,6 +354,10 @@ async def _generate_agent_reply(
         "Use only the provided catalog context for prices/stock. "
         "If information is missing, say you do not know and suggest asking a human."
     )
+    if not search_catalog:
+        guardrail += (
+            " The customer sent a casual greeting — do not mention products, prices, or stock."
+        )
 
     formatted_history: list[dict] = []
     for row in recent_messages[-12:]:
@@ -334,7 +371,7 @@ async def _generate_agent_reply(
             model=model_cfg.name,
             max_tokens=model_cfg.max_tokens or 1024,
             temperature=model_cfg.temperature or 0.2,
-            system=f"{conversation_system}\n\n{guardrail}\n\nCatalog context:\n{_format_catalog_context(hits)}",
+            system=f"{conversation_system}\n\n{guardrail}\n\nCatalog context:\n{catalog_context}",
             messages=formatted_history,
         )
 
@@ -562,6 +599,7 @@ async def send_test_chat_message(
                         "name_en": card.name_en,
                         "price": card.price,
                         "currency": card.currency,
+                        "category": card.category,
                     }
                     for card in (reply_cards or [])
                 ]
@@ -727,6 +765,7 @@ async def get_test_chat_history(
                         name_en=str(item.get("name_en", "")),
                         price=float(item.get("price", 0) or 0),
                         currency=str(item.get("currency", "ILS")),
+                        category=item.get("category"),
                     )
                     for item in raw_cards
                     if isinstance(item, dict)

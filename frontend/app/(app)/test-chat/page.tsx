@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { SendHorizonal } from "lucide-react";
+import { SendHorizonal, Sparkles } from "lucide-react";
+import { ProductResultCard } from "@/components/product-result-card";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -54,27 +55,39 @@ export default function TestChatPage() {
         <CardTitle>{t("Test chat", "צ׳אט בדיקה")}</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-1 flex-col gap-4 overflow-hidden p-0">
-        <div className="flex-1 space-y-3 overflow-y-auto p-4">
+        <div className="flex-1 space-y-4 overflow-y-auto p-4">
           {messages.map((message) => (
             <div
               key={message.id}
-              className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${
-                message.role === "user"
-                  ? "ms-auto bg-emerald-600 text-white"
-                  : "bg-muted text-foreground"
-              }`}
+              className={`flex flex-col gap-3 ${message.role === "user" ? "items-end" : "items-start"}`}
             >
-              <p>{message.text}</p>
-              {message.cards?.length ? (
-                <div className="mt-3 space-y-2">
-                  {message.cards.map((card) => (
-                    <div key={card.id} className="rounded-md border bg-card p-2 text-foreground">
-                      <p className="font-medium">{locale === "he" ? card.nameHe : card.nameEn}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {card.price} {card.currency}
-                      </p>
-                    </div>
-                  ))}
+              <div
+                className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed shadow-sm ${
+                  message.role === "user"
+                    ? "bg-emerald-600 text-white"
+                    : "border border-border/60 bg-muted/80 text-foreground"
+                }`}
+              >
+                <p className="whitespace-pre-wrap">{message.text}</p>
+              </div>
+
+              {message.role === "assistant" && message.cards?.length ? (
+                <div className="w-full max-w-xl space-y-2.5">
+                  <div className="flex items-center gap-1.5 px-1 text-xs font-medium text-muted-foreground">
+                    <Sparkles className="size-3.5 text-emerald-600 dark:text-emerald-400" />
+                    <span>
+                      {locale === "he"
+                        ? message.cards.length === 1
+                          ? "מוצר תואם אחד"
+                          : `${message.cards.length} מוצרים תואמים`
+                        : `${message.cards.length} matching product${message.cards.length === 1 ? "" : "s"}`}
+                    </span>
+                  </div>
+                  <div className="grid gap-2.5">
+                    {message.cards.map((card) => (
+                      <ProductResultCard key={card.id} card={card} locale={locale} />
+                    ))}
+                  </div>
                 </div>
               ) : null}
             </div>

@@ -99,6 +99,7 @@ export interface ProductCard {
   nameEn: string;
   price: number;
   currency: string;
+  category?: string;
 }
 
 export interface TestChatMessage {

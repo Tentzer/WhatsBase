@@ -129,6 +129,28 @@ async function requestJson<T>(
   return (await response.json()) as T;
 }
 
+type ApiProductCard = {
+  id: string;
+  image_url?: string | null;
+  name_he: string;
+  name_en: string;
+  price: number;
+  currency: string;
+  category?: string | null;
+};
+
+function mapProductCard(card: ApiProductCard) {
+  return {
+    id: card.id,
+    imageUrl: card.image_url ?? undefined,
+    nameHe: card.name_he,
+    nameEn: card.name_en,
+    price: Number(card.price || 0),
+    currency: card.currency,
+    category: card.category ?? undefined,
+  };
+}
+
 function mapProductToApiPayload(product: ProductDraft) {
   return {
     stable_key: product.stableKey,
@@ -486,14 +508,7 @@ const realApi: ApiClient = {
         role: "assistant";
         text: string;
         created_at: string;
-        cards?: Array<{
-          id: string;
-          image_url?: string | null;
-          name_he: string;
-          name_en: string;
-          price: number;
-          currency: string;
-        }> | null;
+        cards?: ApiProductCard[] | null;
       };
     }>("/api/test-chat", {
       method: "POST",
@@ -505,14 +520,7 @@ const realApi: ApiClient = {
         role: "assistant",
         text: res.reply.text,
         createdAt: res.reply.created_at,
-        cards: (res.reply.cards ?? []).map((card) => ({
-          id: card.id,
-          imageUrl: card.image_url ?? undefined,
-          nameHe: card.name_he,
-          nameEn: card.name_en,
-          price: Number(card.price || 0),
-          currency: card.currency,
-        })),
+        cards: (res.reply.cards ?? []).map(mapProductCard),
       },
     };
   },
@@ -523,6 +531,7 @@ const realApi: ApiClient = {
         role: "user" | "assistant";
         text: string;
         created_at: string;
+        cards?: ApiProductCard[] | null;
       }>
     >("/api/test-chat/history");
     return res.map((item) => ({
@@ -530,6 +539,7 @@ const realApi: ApiClient = {
       role: item.role,
       text: item.text,
       createdAt: item.created_at,
+      cards: item.cards?.map(mapProductCard),
     }));
   },
   sendSetupAssistantMessage: async (text: string): Promise<TestChatResponse> => {

@@ -160,6 +160,7 @@ class ProductCardResponse(BaseModel):
     name_en: str
     price: float
     currency: str
+    category: str | None = None
 
 
 class TestChatMessageResponse(BaseModel):
