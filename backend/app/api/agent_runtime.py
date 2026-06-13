@@ -7,7 +7,7 @@ import re
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AuthContext, get_auth_context, require_tenant
@@ -814,3 +814,26 @@ async def get_test_chat_history(
             )
         )
     return history
+
+
+@router.delete("/test-chat/history", status_code=204)
+async def clear_test_chat_history(
+    ctx: AuthContext = Depends(get_auth_context),
+    session: AsyncSession = Depends(get_session),
+) -> None:
+    tenant_id = require_tenant(ctx)
+    result = await session.execute(
+        select(Conversation).where(
+            Conversation.tenant_id == tenant_id,
+            Conversation.customer_phone == _TEST_CHAT_PHONE,
+        )
+    )
+    conversation = result.scalar_one_or_none()
+    if conversation is None:
+        return None
+
+    await session.execute(
+        delete(Message).where(Message.conversation_id == conversation.id)
+    )
+    conversation.last_message_at = None
+    await session.commit()

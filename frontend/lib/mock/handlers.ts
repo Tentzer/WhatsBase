@@ -250,6 +250,11 @@ export const mockApi = {
   async getTestChatHistory(): Promise<TestChatMessage[]> {
     return loadState().chat;
   },
+
+  async clearTestChatHistory(): Promise<void> {
+    updateState((prev) => ({ ...prev, chat: [] }));
+  },
+
   async sendSetupAssistantMessage(text: string): Promise<TestChatResponse> {
     const userMsg: TestChatMessage = {
       id: randomId("msg"),

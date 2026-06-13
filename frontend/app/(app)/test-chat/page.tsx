@@ -2,11 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { SendHorizonal, Sparkles } from "lucide-react";
+import { SendHorizonal, Sparkles, Trash2 } from "lucide-react";
 import { ChatTypingIndicator } from "@/components/chat-typing-indicator";
 import { ProductResultCard } from "@/components/product-result-card";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api";
 import { useLocale } from "@/lib/locale";
@@ -19,6 +19,7 @@ export default function TestChatPage() {
   const [messages, setMessages] = useState<TestChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
+  const [clearing, setClearing] = useState(false);
   const [historyLoaded, setHistoryLoaded] = useState(false);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -86,10 +87,44 @@ export default function TestChatPage() {
     }
   };
 
+  const clearChat = async () => {
+    if (clearing || sending) return;
+    if (!messages.length) return;
+
+    const confirmed = window.confirm(
+      t(
+        "Clear all test chat messages? This cannot be undone.",
+        "למחוק את כל הודעות צ׳אט הבדיקה? לא ניתן לבטל פעולה זו.",
+      ),
+    );
+    if (!confirmed) return;
+
+    setClearing(true);
+    try {
+      await api.clearTestChatHistory();
+      setMessages([]);
+      initialScrollDone.current = false;
+    } finally {
+      setClearing(false);
+    }
+  };
+
   return (
     <Card className="flex h-[calc(100vh-11rem)] flex-col">
       <CardHeader className="border-b">
         <CardTitle>{t("Test chat", "צ׳אט בדיקה")}</CardTitle>
+        <CardAction>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => void clearChat()}
+            disabled={clearing || sending || !messages.length}
+          >
+            <Trash2 className="size-4" />
+            {t("Clear chat", "ניקוי צ׳אט")}
+          </Button>
+        </CardAction>
       </CardHeader>
       <CardContent className="flex flex-1 flex-col gap-4 overflow-hidden p-0">
         <div
@@ -167,7 +202,7 @@ export default function TestChatPage() {
               onChange={(event) => setInput(event.target.value)}
               placeholder={placeholder}
               dir={inputDir}
-              disabled={sending}
+              disabled={sending || clearing}
               style={messageTextStyle(inputDir)}
               className="chat-message-text"
               onKeyDown={(event) => {
@@ -177,7 +212,7 @@ export default function TestChatPage() {
                 }
               }}
             />
-            <Button onClick={() => void sendMessage()} disabled={sending || !input.trim()}>
+            <Button onClick={() => void sendMessage()} disabled={sending || clearing || !input.trim()}>
               <SendHorizonal className="size-4" />
             </Button>
           </div>

@@ -38,6 +38,7 @@ interface ApiClient {
   getLangfuseAnalytics: () => Promise<LangfuseAnalytics>;
   sendTestChatMessage: (text: string) => Promise<TestChatResponse>;
   getTestChatHistory: () => Promise<TestChatMessage[]>;
+  clearTestChatHistory: () => Promise<void>;
   sendSetupAssistantMessage: (text: string) => Promise<TestChatResponse>;
   getSetupAssistantHistory: () => Promise<TestChatMessage[]>;
 }
@@ -73,7 +74,7 @@ async function getSessionContext(): Promise<{
 async function requestJson<T>(
   path: string,
   init?: {
-    method?: "GET" | "POST" | "PATCH";
+    method?: "GET" | "POST" | "PATCH" | "DELETE";
     body?: unknown;
   },
 ): Promise<T> {
@@ -117,6 +118,10 @@ async function requestJson<T>(
     }
     const text = await response.text();
     throw new Error(`API ${path} failed (${response.status}): ${text}`);
+  }
+
+  if (response.status === 204) {
+    return undefined as T;
   }
 
   const contentType = response.headers.get("content-type") ?? "";
@@ -540,6 +545,9 @@ const realApi: ApiClient = {
       createdAt: item.created_at,
       cards: item.cards?.map(mapProductCard),
     }));
+  },
+  clearTestChatHistory: async (): Promise<void> => {
+    await requestJson<void>("/api/test-chat/history", { method: "DELETE" });
   },
   sendSetupAssistantMessage: async (text: string): Promise<TestChatResponse> => {
     const res = await requestJson<{
