@@ -27,11 +27,12 @@ from app.core.crypto import encrypt_token
 from app.core.db import get_session
 from app.core.product_images import (
     build_public_storage_url,
+    delete_storage_file,
     list_orphan_tenant_uploads,
     stable_key_from_upload_object_name,
     upload_owner_image,
 )
-from app.core.schema import BusinessInfo, Product, ProductImage, Tenant, User, WhatsAppInstance
+from app.core.schema import BusinessInfo, Embedding, Product, ProductImage, Tenant, User, WhatsAppInstance
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["onboarding"])
@@ -378,14 +379,35 @@ async def delete_product(
     session: AsyncSession = Depends(get_session),
 ) -> None:
     tenant_id = require_tenant(ctx)
+
     result = await session.execute(
-        select(Product).where(Product.id == product_id, Product.tenant_id == tenant_id)
+        select(Product)
+        .where(Product.id == product_id, Product.tenant_id == tenant_id)
+        .options(selectinload(Product.images))
     )
     product = result.scalar_one_or_none()
     if product is None:
         raise HTTPException(status_code=404, detail="Product not found")
+
+    # Collect storage paths before deleting so we can clean up the bucket after commit.
+    storage_paths = [img.storage_path for img in product.images if img.storage_path]
+
+    # Delete all embedding rows for this product (no FK constraint — must be explicit).
+    await session.execute(
+        delete(Embedding).where(
+            Embedding.ref_type == "product",
+            Embedding.ref_id == product_id,
+            Embedding.tenant_id == tenant_id,
+        )
+    )
+
+    # Delete the product — cascades to product_images rows via "all, delete-orphan".
     await session.delete(product)
     await session.commit()
+
+    # Best-effort: remove actual image files from Supabase Storage.
+    for path in storage_paths:
+        await delete_storage_file(path)
 
 
 @router.get("/whatsapp/status", response_model=WhatsAppStatusResponse)

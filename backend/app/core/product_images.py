@@ -131,6 +131,22 @@ async def upload_owner_image(
     return storage_path, public_url
 
 
+async def delete_storage_file(storage_path: str) -> None:
+    """Delete a single file from the product-images bucket. Best-effort — logs on failure."""
+    try:
+        from app.core.supabase import get_supabase
+
+        supabase = get_supabase()
+
+        def _remove() -> None:
+            supabase.storage.from_(BUCKET).remove([storage_path])
+
+        await asyncio.to_thread(_remove)
+        logger.info("deleted storage file: %s", storage_path)
+    except Exception as exc:
+        logger.warning("failed to delete storage file %s: %s", storage_path, exc)
+
+
 def _ensure_bucket(supabase, bucket_name: str) -> None:
     """Create the public Storage bucket if it doesn't exist."""
     try:
