@@ -8,8 +8,10 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { FloatingChat } from "@/components/floating-chat";
 import { LangfusePanel } from "@/components/langfuse-panel";
 import { NavigationProgressProvider } from "@/components/navigation-progress";
+import { OnboardingSessionGuard } from "@/components/onboarding-session-guard";
 import { useLocale } from "@/lib/locale";
 import { createClient } from "@/lib/supabase/client";
+import { useOnboardingStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -52,13 +54,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     };
   }, [analyticsOpen]);
 
+  const resetOnboarding = useOnboardingStore((state) => state.reset);
+
   const signOut = async () => {
+    resetOnboarding();
     await supabase.auth.signOut();
     router.push("/login");
   };
 
   return (
     <NavigationProgressProvider>
+    <OnboardingSessionGuard />
     <div className="min-h-screen text-foreground">
       <header className="sticky top-0 z-40 border-b bg-card/80 backdrop-blur-md">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">

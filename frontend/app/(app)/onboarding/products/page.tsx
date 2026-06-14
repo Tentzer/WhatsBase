@@ -175,12 +175,16 @@ function autoAttachImages(items: ProductDraft[], images: ProductImageDraft[]) {
   return { items: nextItems, attachedCount };
 }
 
+function imagesFromProducts(items: ProductDraft[]): ProductImageDraft[] {
+  return items.map((item) => item.image).filter(Boolean) as ProductImageDraft[];
+}
+
 export default function ProductsOnboardingPage() {
   const navigate = useNavigate();
   const { t } = useLocale();
-  const { products, setProducts, catalogPhotos, setCatalogPhotos } = useOnboardingStore();
-  const [rows, setRows] = useState<ProductDraft[]>(products);
-  const [photoLibrary, setPhotoLibrary] = useState<ProductImageDraft[]>(catalogPhotos);
+  const { setProducts, setCatalogPhotos } = useOnboardingStore();
+  const [rows, setRows] = useState<ProductDraft[]>([]);
+  const [photoLibrary, setPhotoLibrary] = useState<ProductImageDraft[]>([]);
   const [saving, setSaving] = useState(false);
   const [bulkUploading, setBulkUploading] = useState(false);
   const [bulkUploadProgress, setBulkUploadProgress] = useState<BulkUploadProgress | null>(null);
@@ -193,19 +197,31 @@ export default function ProductsOnboardingPage() {
 
   useEffect(() => {
     void (async () => {
+      setSyncingUploads(true);
+      setUploadError(null);
+      setBulkUploadMessage(null);
+      setRows([]);
+      setPhotoLibrary([]);
+      setProducts([]);
+      setCatalogPhotos([]);
+
       try {
         const fromDb = await api.getProducts();
         if (fromDb.length > 0) {
+          const images = imagesFromProducts(fromDb);
           setRows(fromDb);
           setProducts(fromDb);
-          setSyncingUploads(false);
+          setPhotoLibrary(images);
+          setCatalogPhotos(images);
           return;
         }
 
         const items = await api.syncProductsFromUploads();
+        const images = imagesFromProducts(items);
         setRows(items);
         setProducts(items);
-        setCatalogPhotos(items.map((item) => item.image).filter(Boolean) as ProductImageDraft[]);
+        setPhotoLibrary(images);
+        setCatalogPhotos(images);
         if (items.length) {
           setBulkUploadMessage(
             t(
@@ -218,6 +234,7 @@ export default function ProductsOnboardingPage() {
         setProducts([]);
         setCatalogPhotos([]);
         setRows([]);
+        setPhotoLibrary([]);
         setUploadError(
           err instanceof Error
             ? err.message
@@ -235,13 +252,6 @@ export default function ProductsOnboardingPage() {
     folderInput.setAttribute("webkitdirectory", "");
     folderInput.setAttribute("directory", "");
   }, []);
-
-  useEffect(() => {
-    if (rows.length === 0 && photoLibrary.length > 0) {
-      const result = mergeUploadedPhotosIntoRows([], photoLibrary);
-      setRows(result.items);
-    }
-  }, [photoLibrary.length, rows.length]);
 
   const mergePhotoLibrary = (
     existing: ProductImageDraft[],

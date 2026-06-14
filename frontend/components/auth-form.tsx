@@ -9,6 +9,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { createClient } from "@/lib/supabase/client";
+import { useOnboardingStore } from "@/lib/store";
 
 interface AuthFormProps {
   mode: "login" | "signup";
@@ -29,6 +30,7 @@ export function AuthForm({ mode }: AuthFormProps) {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
+  const resetOnboarding = useOnboardingStore((state) => state.reset);
 
   const isLogin = mode === "login";
 
@@ -51,6 +53,10 @@ export function AuthForm({ mode }: AuthFormProps) {
       return;
     }
 
+    resetOnboarding();
+    if (result.data.session?.user?.id) {
+      useOnboardingStore.getState().ensureUserSession(result.data.session.user.id);
+    }
     router.refresh();
     window.location.assign("/onboarding/business");
   };
