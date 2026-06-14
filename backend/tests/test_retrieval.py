@@ -145,12 +145,12 @@ async def test_search_executes_and_returns_hit():
         await session.commit()
 
     try:
-        hits = await search(test_tenant_id, "white sofa", k=5)
+        hits = await search(test_tenant_id, "white sofa", k=3)
         assert hits, "Expected at least one hit"
         assert any(h.stable_key == "test-sofa" for h in hits), \
             f"test-sofa not in hits: {[h.stable_key for h in hits]}"
 
-        filtered = await search(test_tenant_id, "sofa", filters={"category": "sofa"}, k=5)
+        filtered = await search(test_tenant_id, "sofa", filters={"category": "sofa"}, k=3)
         assert any(h.stable_key == "test-sofa" for h in filtered), \
             "Category filter should still return test-sofa"
     finally:

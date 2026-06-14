@@ -42,7 +42,7 @@ async def run(
         filters["price_max"] = price_max
 
     hits = await retrieval_search(
-        tenant_id=ctx.tenant_id, query=query, filters=filters or None, k=5
+        tenant_id=ctx.tenant_id, query=query, filters=filters or None, k=3
     )
 
     # Cache hits so send_product_cards can build cards by id, and record prices

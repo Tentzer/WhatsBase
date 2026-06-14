@@ -23,7 +23,7 @@ async def search(
     tenant_id: str,
     query: str,
     filters: dict | None = None,
-    k: int = 5,
+    k: int = 3,
 ) -> list[ProductHit]:
     """Return top-k ProductHits for query, scoped to tenant_id.
 

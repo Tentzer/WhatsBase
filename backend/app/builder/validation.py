@@ -444,7 +444,7 @@ async def _check_question(
     hits = []
     try:
         filters = dict(q.retrieval_filters) if q.retrieval_filters else None
-        hits = await search(ctx.tenant_id, q.q, filters=filters, k=5)
+        hits = await search(ctx.tenant_id, q.q, filters=filters, k=3)
         hit_ids = [h.product_id for h in hits]
 
         if q.min_hits > 0 and len(hits) < q.min_hits:
