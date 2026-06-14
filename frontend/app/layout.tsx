@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Plus_Jakarta_Sans, Space_Grotesk, Geist_Mono } from "next/font/google";
 import NextTopLoader from "nextjs-toploader";
 import "./globals.css";
+import { AnimatedBackground } from "@/components/animated-background";
 import { LocaleProvider } from "@/lib/locale";
 
 const plusJakartaSans = Plus_Jakarta_Sans({
@@ -41,7 +42,8 @@ export default function RootLayout({
       lang="en"
       className={`${plusJakartaSans.variable} ${spaceGrotesk.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">
+      <body className="relative isolate min-h-full flex flex-col">
+        <AnimatedBackground />
         <NextTopLoader color="#059669" height={3} showSpinner={false} shadow={false} />
         <LocaleProvider>{children}</LocaleProvider>
       </body>

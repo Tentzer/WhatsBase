@@ -150,17 +150,47 @@
    the .dark class on <html> swaps both the base color and the gradient.
    A three-point mesh reads as premium and intentional rather than a flat wash. */
 :root {
-  --bg-gradient:
-    radial-gradient(ellipse 70% 55% at 8% -5%, oklch(0.9 0.08 158 / 0.5) 0%, transparent 60%),
-    radial-gradient(ellipse 55% 45% at 95% 8%, oklch(0.92 0.06 182 / 0.4) 0%, transparent 55%),
-    radial-gradient(ellipse 80% 50% at 50% 110%, oklch(0.93 0.05 150 / 0.35) 0%, transparent 60%);
+  --ambient-mesh:
+    radial-gradient(ellipse 80% 55% at 72% 28%, oklch(0.72 0.12 158 / 0.22) 0%, transparent 62%),
+    radial-gradient(ellipse 60% 45% at 18% 72%, oklch(0.78 0.1 182 / 0.18) 0%, transparent 65%),
+    radial-gradient(ellipse 70% 50% at 50% 105%, oklch(0.8 0.08 150 / 0.14) 0%, transparent 60%);
+  --ambient-shift: linear-gradient(
+    135deg,
+    oklch(0.68 0.14 156 / 0.14) 0%,
+    oklch(0.76 0.1 182 / 0.1) 35%,
+    oklch(0.62 0.12 150 / 0.12) 70%,
+    oklch(0.74 0.11 168 / 0.1) 100%
+  );
+  --ambient-grid-color: oklch(0.2 0.02 165 / 0.04);
+  --ambient-vignette: linear-gradient(
+    to bottom,
+    color-mix(in oklch, var(--background) 35%, transparent) 0%,
+    transparent 38%,
+    transparent 72%,
+    color-mix(in oklch, var(--background) 55%, transparent) 100%
+  );
 }
 
 html.dark {
-  --bg-gradient:
-    radial-gradient(ellipse 65% 50% at 5% -5%, oklch(0.34 0.1 158 / 0.45) 0%, transparent 55%),
-    radial-gradient(ellipse 50% 45% at 98% 5%, oklch(0.3 0.08 188 / 0.4) 0%, transparent 50%),
-    radial-gradient(ellipse 75% 50% at 50% 112%, oklch(0.28 0.07 150 / 0.4) 0%, transparent 55%);
+  --ambient-mesh:
+    radial-gradient(ellipse 80% 55% at 70% 30%, oklch(0.55 0.14 158 / 0.18) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 45% at 25% 70%, oklch(0.48 0.1 188 / 0.16) 0%, transparent 65%),
+    radial-gradient(ellipse 75% 50% at 50% 108%, oklch(0.42 0.08 150 / 0.14) 0%, transparent 58%);
+  --ambient-shift: linear-gradient(
+    135deg,
+    oklch(0.58 0.14 156 / 0.16) 0%,
+    oklch(0.45 0.1 188 / 0.12) 35%,
+    oklch(0.52 0.12 158 / 0.14) 70%,
+    oklch(0.48 0.1 175 / 0.12) 100%
+  );
+  --ambient-grid-color: oklch(1 0 0 / 0.04);
+  --ambient-vignette: linear-gradient(
+    to bottom,
+    color-mix(in oklch, var(--background) 45%, transparent) 0%,
+    transparent 40%,
+    transparent 75%,
+    color-mix(in oklch, var(--background) 70%, transparent) 100%
+  );
 }
 
 @layer base {
@@ -171,8 +201,6 @@ html.dark {
   html {
     @apply font-sans;
     background-color: var(--background);
-    background-image: var(--bg-gradient);
-    background-attachment: fixed;
   }
 
   body {
@@ -244,6 +272,46 @@ html.dark {
   }
 }
 
+/* ── Animated ambient background (site-wide) ── */
+
+.ambient-bg-mesh {
+  background: var(--ambient-mesh);
+}
+
+.ambient-bg-shift {
+  opacity: 0.55;
+  background-image: var(--ambient-shift);
+  background-size: 400% 400%;
+  animation: ambient-gradient-shift 10s ease infinite;
+}
+
+.dark .ambient-bg-shift {
+  opacity: 0.35;
+}
+
+.ambient-bg-grid {
+  opacity: 0.35;
+  background-image:
+    linear-gradient(var(--ambient-grid-color) 1px, transparent 1px),
+    linear-gradient(90deg, var(--ambient-grid-color) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: radial-gradient(ellipse 85% 75% at 50% 45%, black 20%, transparent 72%);
+}
+
+.ambient-bg-vignette {
+  background: var(--ambient-vignette);
+}
+
+@keyframes ambient-gradient-shift {
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
 /* Slow floating motion for hero decorations */
 @keyframes float-slow {
   0%,
@@ -274,6 +342,11 @@ html.dark {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .ambient-bg-shift {
+    animation: none;
+    background-position: 50% 50%;
+  }
+
   .animate-float-slow,
   .animate-rise-in {
     animation: none;
