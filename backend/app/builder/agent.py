@@ -145,6 +145,10 @@ async def run_build(
 
 async def _agent_loop(ctx: BuildContext) -> None:
     """Anthropic tool-calling loop."""
+    from app.builder.business_info_loader import ensure_business_info_loaded
+
+    await ensure_business_info_loaded(ctx)
+
     model_cfg = get_model("builder")
     client = _get_anthropic()
 
