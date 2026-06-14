@@ -4,15 +4,17 @@ import logging
 from datetime import datetime, timezone
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.api.deps import AuthContext, get_auth_context, require_tenant
 from app.api.schemas import (
     BusinessInfoItem,
     MeResponse,
     MeUserResponse,
+    ProductImageUploadResponse,
     ProductPayload,
     ProductResponse,
     TenantCreateRequest,
@@ -23,10 +25,57 @@ from app.api.schemas import (
 from app.core.config import get_settings
 from app.core.crypto import encrypt_token
 from app.core.db import get_session
+from app.core.product_images import (
+    build_public_storage_url,
+    list_orphan_tenant_uploads,
+    stable_key_from_upload_object_name,
+    upload_owner_image,
+)
 from app.core.schema import BusinessInfo, Product, ProductImage, Tenant, User, WhatsAppInstance
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["onboarding"])
+
+
+async def _product_responses_for_tenant(
+    session: AsyncSession,
+    tenant_id: str,
+) -> list[ProductResponse]:
+    result = await session.execute(
+        select(Product)
+        .where(Product.tenant_id == tenant_id)
+        .options(selectinload(Product.images))
+        .order_by(Product.created_at.asc())
+    )
+    products = result.scalars().all()
+    responses: list[ProductResponse] = []
+    for product in products:
+        image = product.images[0] if product.images else None
+        responses.append(
+            ProductResponse(
+                id=product.id,
+                stable_key=product.stable_key,
+                name_he=product.name_he or "",
+                name_en=product.name_en or "",
+                category=product.category or "",
+                price=float(product.price or 0),
+                currency=product.currency,
+                in_stock=product.in_stock,
+                colors=str((product.attributes or {}).get("colors", "")),
+                materials=str((product.attributes or {}).get("materials", "")),
+                style=str((product.attributes or {}).get("style", "")),
+                image=(
+                    None
+                    if image is None
+                    else {
+                        "file_name": None,
+                        "storage_path": image.storage_path,
+                        "public_url": image.public_url,
+                    }
+                ),
+            )
+        )
+    return responses
 
 
 @router.get("/debug")
@@ -150,49 +199,115 @@ async def save_business_info(
     return payload
 
 
+@router.post("/products/upload-image", response_model=ProductImageUploadResponse)
+async def upload_product_image(
+    file: UploadFile = File(...),
+    ctx: AuthContext = Depends(get_auth_context),
+) -> ProductImageUploadResponse:
+    """Upload a product photo to Supabase Storage for step-2 onboarding.
+
+    The image is linked to a product row when the owner saves the catalog via
+    POST /api/products (which writes the product_images table).
+    """
+    tenant_id = require_tenant(ctx)
+    filename = (file.filename or "").strip()
+    if not filename:
+        raise HTTPException(status_code=400, detail="Filename is required")
+
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Empty file")
+
+    try:
+        storage_path, public_url = await upload_owner_image(
+            tenant_id,
+            filename,
+            content,
+            file.content_type,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("product image upload failed for tenant %s", tenant_id)
+        raise HTTPException(status_code=500, detail="Image upload failed") from exc
+
+    return ProductImageUploadResponse(
+        file_name=filename,
+        storage_path=storage_path,
+        public_url=public_url,
+    )
+
+
 @router.get("/products", response_model=list[ProductResponse])
 async def get_products(
     ctx: AuthContext = Depends(get_auth_context),
     session: AsyncSession = Depends(get_session),
 ) -> list[ProductResponse]:
     tenant_id = require_tenant(ctx)
-    result = await session.execute(
-        select(Product).where(Product.tenant_id == tenant_id).order_by(Product.created_at.asc())
+    return await _product_responses_for_tenant(session, tenant_id)
+
+
+@router.post("/products/sync-uploads", response_model=list[ProductResponse])
+async def sync_products_from_uploads(
+    ctx: AuthContext = Depends(get_auth_context),
+    session: AsyncSession = Depends(get_session),
+) -> list[ProductResponse]:
+    """Create product rows for photos already uploaded to Storage but not yet saved."""
+    tenant_id = require_tenant(ctx)
+
+    linked_result = await session.execute(
+        select(ProductImage.storage_path)
+        .join(Product, Product.id == ProductImage.product_id)
+        .where(Product.tenant_id == tenant_id)
     )
-    products = result.scalars().all()
-    responses: list[ProductResponse] = []
-    for product in products:
-        image_result = await session.execute(
-            select(ProductImage)
-            .where(ProductImage.product_id == product.id)
-            .order_by(ProductImage.created_at.asc())
+    linked_paths = {row[0] for row in linked_result.all() if row[0]}
+
+    orphans = await list_orphan_tenant_uploads(tenant_id, linked_paths)
+    if orphans:
+        existing_keys_result = await session.execute(
+            select(Product.stable_key).where(Product.tenant_id == tenant_id)
         )
-        image = image_result.scalars().first()
-        responses.append(
-            ProductResponse(
-                id=product.id,
-                stable_key=product.stable_key,
-                name_he=product.name_he or "",
-                name_en=product.name_en or "",
-                category=product.category or "",
-                price=float(product.price or 0),
-                currency=product.currency,
-                in_stock=product.in_stock,
-                colors=str((product.attributes or {}).get("colors", "")),
-                materials=str((product.attributes or {}).get("materials", "")),
-                style=str((product.attributes or {}).get("style", "")),
-                image=(
-                    None
-                    if image is None
-                    else {
-                        "file_name": None,
-                        "storage_path": image.storage_path,
-                        "public_url": image.public_url,
-                    }
-                ),
+        used_keys = {row[0] for row in existing_keys_result.all() if row[0]}
+
+        pending_images: list[tuple[Product, str]] = []
+        for storage_path, storage_name in orphans:
+            stable_key = stable_key_from_upload_object_name(storage_name)
+            suffix = 1
+            base_key = stable_key
+            while stable_key in used_keys:
+                stable_key = f"{base_key}-{suffix}"
+                suffix += 1
+            used_keys.add(stable_key)
+
+            product = Product(
+                tenant_id=tenant_id,
+                stable_key=stable_key,
+                currency="ILS",
+                in_stock=True,
+                source="owner_input",
             )
+            session.add(product)
+            pending_images.append((product, storage_path))
+
+        await session.flush()
+
+        for product, storage_path in pending_images:
+            session.add(
+                ProductImage(
+                    product_id=product.id,
+                    storage_path=storage_path,
+                    public_url=build_public_storage_url(storage_path),
+                )
+            )
+
+        await session.commit()
+        logger.info(
+            "sync_products_from_uploads: tenant=%s created %d product row(s)",
+            tenant_id,
+            len(orphans),
         )
-    return responses
+
+    return await _product_responses_for_tenant(session, tenant_id)
 
 
 @router.post("/products", response_model=list[ProductResponse])
@@ -202,24 +317,29 @@ async def save_products(
     session: AsyncSession = Depends(get_session),
 ) -> list[ProductResponse]:
     tenant_id = require_tenant(ctx)
-    output: list[ProductResponse] = []
+    stable_keys = [item.stable_key.strip() for item in payload if item.stable_key.strip()]
+    if not stable_keys:
+        return await _product_responses_for_tenant(session, tenant_id)
 
+    existing_result = await session.execute(
+        select(Product)
+        .where(Product.tenant_id == tenant_id, Product.stable_key.in_(stable_keys))
+        .options(selectinload(Product.images))
+    )
+    products_by_key = {product.stable_key: product for product in existing_result.scalars().all()}
+
+    created_any = False
     for item in payload:
         stable_key = item.stable_key.strip()
         if not stable_key:
             continue
 
-        product_result = await session.execute(
-            select(Product).where(
-                Product.tenant_id == tenant_id,
-                Product.stable_key == stable_key,
-            )
-        )
-        product = product_result.scalar_one_or_none()
+        product = products_by_key.get(stable_key)
         if product is None:
             product = Product(tenant_id=tenant_id, stable_key=stable_key)
             session.add(product)
-            await session.flush()
+            products_by_key[stable_key] = product
+            created_any = True
 
         product.name_he = item.name_he
         product.name_en = item.name_en
@@ -235,55 +355,20 @@ async def save_products(
         product.source = "owner_input"
 
         image_payload = item.image
-        image_row = None
         if image_payload is not None:
-            image_result = await session.execute(
-                select(ProductImage)
-                .where(ProductImage.product_id == product.id)
-                .order_by(ProductImage.created_at.asc())
-            )
-            image_row = image_result.scalars().first()
+            image_row = product.images[0] if product.images else None
             if image_row is None:
-                image_row = ProductImage(product_id=product.id, storage_path=image_payload.storage_path)
+                image_row = ProductImage(storage_path=image_payload.storage_path)
                 session.add(image_row)
-
+                product.images.append(image_row)
             image_row.storage_path = image_payload.storage_path
             image_row.public_url = image_payload.public_url
-        else:
-            existing_result = await session.execute(
-                select(ProductImage)
-                .where(ProductImage.product_id == product.id)
-                .order_by(ProductImage.created_at.asc())
-            )
-            image_row = existing_result.scalars().first()
 
-        output.append(
-            ProductResponse(
-                id=product.id,
-                stable_key=product.stable_key,
-                name_he=product.name_he or "",
-                name_en=product.name_en or "",
-                category=product.category or "",
-                price=float(product.price or 0),
-                currency=product.currency,
-                in_stock=product.in_stock,
-                colors=str((product.attributes or {}).get("colors", "")),
-                materials=str((product.attributes or {}).get("materials", "")),
-                style=str((product.attributes or {}).get("style", "")),
-                image=(
-                    None
-                    if image_row is None
-                    else {
-                        "file_name": None,
-                        "storage_path": image_row.storage_path,
-                        "public_url": image_row.public_url,
-                    }
-                ),
-            )
-        )
+    if created_any:
+        await session.flush()
 
     await session.commit()
-    return output
+    return await _product_responses_for_tenant(session, tenant_id)
 
 
 @router.get("/whatsapp/status", response_model=WhatsAppStatusResponse)

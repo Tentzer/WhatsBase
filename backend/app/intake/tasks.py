@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import datetime, timezone
+from pathlib import Path
 
 from arq.connections import ArqRedis
 from sqlalchemy import select, update
@@ -355,20 +356,11 @@ async def _fail_build(tenant_id: str, build_run_id: str | None, error: str) -> N
 
 
 async def run_build(ctx: dict, payload: dict) -> None:
-    """API/wizard build: deterministic build from the tenant's DB rows.
+    """API/wizard build: stage onboarding data, then run the full Builder agent."""
+    import shutil
 
-    The onboarding wizard writes products + business_info directly to the DB, so
-    this path skips the autonomous image-captioning agent (builder/agent.py, the
-    CLI/assets flow). It reuses the builder's DB-backed steps — generate the
-    system prompt and index embeddings — then marks the agent live.
-
-    NOTE: the 8-question self-test (builder/validation.py) is furniture-specific
-    (Q1 hard-requires a 'sofa'), so it cannot gate arbitrary tenants. It is
-    intentionally NOT run here; generalising it into a tenant-appropriate gate is
-    a separate follow-up. Tenant isolation: every step is scoped to tenant_id.
-    """
-    from app.builder.context import BuildContext, BusinessInfoItem
-    from app.builder.tools.knowledge import generate_system_prompt, index_embeddings
+    from app.builder.agent import run_build as run_builder_agent
+    from app.builder.onboarding_assets import materialize_tenant_assets
 
     tenant_id = payload["tenant_id"]
     build_run_id = payload.get("build_run_id")
@@ -379,66 +371,35 @@ async def run_build(ctx: dict, payload: dict) -> None:
         await _fail_build(tenant_id, build_run_id, "Missing LLM credentials")
         return
 
+    assets_dir: Path | None = None
     try:
         async with SessionLocal() as session:
             await _update_build_run(
-                session, build_run_id, tenant_id,
-                status="running", progress=20, step="index_embeddings",
+                session,
+                build_run_id,
+                tenant_id,
+                status="running",
+                progress=10,
+                step="collect_assets",
             )
+            assets_dir = await materialize_tenant_assets(session, tenant_id)
 
-            bi_rows = (
-                await session.execute(
-                    select(BusinessInfo).where(BusinessInfo.tenant_id == tenant_id)
-                )
-            ).scalars().all()
-
-            from pathlib import Path
-
-            build_ctx = BuildContext(
-                tenant_id=tenant_id,
-                assets_dir=Path("."),  # unused on the DB path
-                dry_run=False,
-                session=session,
-            )
-            build_ctx.business_info_items = [
-                BusinessInfoItem(
-                    topic=b.topic,
-                    content_he=b.content_he or "",
-                    content_en=b.content_en or "",
-                )
-                for b in bi_rows
-            ]
-
-            await generate_system_prompt(build_ctx, draft="")
-            await index_embeddings(build_ctx)
-
-            stable_keys = (
-                await session.execute(
-                    select(Product.stable_key).where(Product.tenant_id == tenant_id)
-                )
-            ).scalars().all()
-
-            await session.execute(
-                update(Agent).where(Agent.tenant_id == tenant_id).values(status="live")
-            )
-            await session.commit()
-
-            await _update_build_run(
-                session, build_run_id, tenant_id,
-                status="passed", progress=100, step="finalize",
-                extra_report={
-                    "found": list(stable_keys),
-                    "created": list(stable_keys),
-                    "assumed": [],
-                    "self_test": {"passed": True, "questions": []},
-                },
-            )
-        logger.info(
-            "run_build: tenant=%s is LIVE (%d products)", tenant_id, len(stable_keys)
+        await run_builder_agent(
+            tenant_id,
+            assets_dir,
+            dry_run=False,
+            build_run_id=build_run_id,
         )
+        logger.info("run_build: full builder agent finished for tenant=%s", tenant_id)
+    except ValueError as exc:
+        logger.warning("run_build: invalid catalog for tenant=%s: %s", tenant_id, exc)
+        await _fail_build(tenant_id, build_run_id, str(exc))
     except Exception as exc:  # noqa: BLE001
         logger.exception("run_build failed for tenant=%s", tenant_id)
         await _fail_build(tenant_id, build_run_id, str(exc))
+    finally:
+        if assets_dir is not None:
+            shutil.rmtree(assets_dir, ignore_errors=True)
 
 
 async def run_incremental_build(ctx: dict, payload: dict) -> None:

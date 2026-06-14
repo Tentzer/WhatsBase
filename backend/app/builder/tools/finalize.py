@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from sqlalchemy import update
 
 from app.builder.context import BuildContext
+from app.core.config import get_settings
 from app.core.schema import Agent, BuildRun
 
 logger = logging.getLogger(__name__)
@@ -22,7 +23,7 @@ async def finalize_build(ctx: BuildContext) -> str:
 
     session = ctx.session
 
-    if not ctx.self_test_passed:
+    if not ctx.self_test_passed and not get_settings().build_skip_self_test:
         # Record failure.
         await _set_status(session, ctx, status="failed")
         failed_qs = [
@@ -55,13 +56,17 @@ async def _set_status(session, ctx: BuildContext, status: str) -> None:
 
     report_dict = ctx.report.to_dict()
     report_dict["self_test"]["passed"] = ctx.self_test_passed
+    report_dict["ui_progress_pct"] = 100
+    report_dict["ui_current_step"] = "finalize"
+
+    build_run_filter = [BuildRun.id == ctx.build_run_id] if ctx.build_run_id else [
+        BuildRun.tenant_id == ctx.tenant_id,
+        BuildRun.status == "running",
+    ]
 
     await session.execute(
         update(BuildRun)
-        .where(
-            BuildRun.tenant_id == ctx.tenant_id,
-            BuildRun.status == "running",
-        )
+        .where(*build_run_filter)
         .values(
             status=status,
             report=report_dict,

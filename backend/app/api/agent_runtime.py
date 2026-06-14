@@ -7,7 +7,7 @@ import re
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AuthContext, get_auth_context, require_tenant
@@ -18,6 +18,7 @@ from app.api.schemas import (
     BuildRunPatchRequest,
     BuildRunResponse,
     ProductCardResponse,
+    ClearTestChatResponse,
     TestChatMessageResponse,
     TestChatRequest,
     TestChatResponse,
@@ -434,6 +435,24 @@ async def start_incremental_build(
     return _map_build_run(build_run)
 
 
+@router.get("/build-runs/latest", response_model=BuildRunResponse | None)
+async def get_latest_build_run(
+    ctx: AuthContext = Depends(get_auth_context),
+    session: AsyncSession = Depends(get_session),
+) -> BuildRunResponse | None:
+    tenant_id = require_tenant(ctx)
+    result = await session.execute(
+        select(BuildRun)
+        .where(BuildRun.tenant_id == tenant_id)
+        .order_by(BuildRun.created_at.desc())
+        .limit(1)
+    )
+    row = result.scalar_one_or_none()
+    if row is None:
+        return None
+    return _map_build_run(row)
+
+
 @router.get("/build-runs/{build_run_id}", response_model=BuildRunResponse)
 async def get_build_run(
     build_run_id: str,
@@ -747,3 +766,46 @@ async def get_test_chat_history(
             )
         )
     return history
+
+
+async def _clear_test_chat_messages(
+    session: AsyncSession,
+    tenant_id: str,
+) -> int:
+    result = await session.execute(
+        select(Conversation).where(
+            Conversation.tenant_id == tenant_id,
+            Conversation.customer_phone == _TEST_CHAT_PHONE,
+        )
+    )
+    conversation = result.scalar_one_or_none()
+    if conversation is None:
+        return 0
+
+    delete_result = await session.execute(
+        delete(Message).where(Message.conversation_id == conversation.id)
+    )
+    deleted_count = int(delete_result.rowcount or 0)
+    conversation.last_message_at = None
+    await session.commit()
+    return deleted_count
+
+
+@router.post("/test-chat/clear", response_model=ClearTestChatResponse)
+async def clear_test_chat_history_post(
+    ctx: AuthContext = Depends(get_auth_context),
+    session: AsyncSession = Depends(get_session),
+) -> ClearTestChatResponse:
+    tenant_id = require_tenant(ctx)
+    deleted = await _clear_test_chat_messages(session, tenant_id)
+    return ClearTestChatResponse(deleted=deleted)
+
+
+@router.delete("/test-chat/history", response_model=ClearTestChatResponse)
+async def clear_test_chat_history(
+    ctx: AuthContext = Depends(get_auth_context),
+    session: AsyncSession = Depends(get_session),
+) -> ClearTestChatResponse:
+    tenant_id = require_tenant(ctx)
+    deleted = await _clear_test_chat_messages(session, tenant_id)
+    return ClearTestChatResponse(deleted=deleted)

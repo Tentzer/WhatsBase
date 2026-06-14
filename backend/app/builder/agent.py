@@ -17,6 +17,7 @@ from app.builder.prompts import BUILDER_SYSTEM
 # Cache TTL is 5 minutes; repeated builder turns pay only the cached-token rate.
 _CACHED_SYSTEM = [{"type": "text", "text": BUILDER_SYSTEM, "cache_control": {"type": "ephemeral"}}]
 from app.builder.report import BuildReport
+from app.builder.progress import update_ui_progress
 from app.builder.tools import TOOL_SCHEMAS, dispatch
 from app.core.config import get_settings
 from app.core.db import SessionLocal
@@ -28,7 +29,7 @@ from app.core.schema import Agent, BuildRun, Tenant
 
 logger = logging.getLogger(__name__)
 
-MAX_ITERATIONS = 40  # safety cap; a full build needs ~30 tool calls
+MAX_ITERATIONS = 500  # safety cap; large catalogs need ~2 turns per product + overhead
 
 
 @lru_cache(maxsize=1)
@@ -39,7 +40,13 @@ def _get_anthropic():
 
 
 @observe(name="builder.run")
-async def run_build(tenant_id: str, assets_dir: Path, dry_run: bool = False) -> BuildReport:
+async def run_build(
+    tenant_id: str,
+    assets_dir: Path,
+    dry_run: bool = False,
+    *,
+    build_run_id: str | None = None,
+) -> BuildReport:
     """Run the full Builder agent for one tenant. Returns the BuildReport."""
     update_trace(tenant_id=tenant_id)
 
@@ -52,30 +59,53 @@ async def run_build(tenant_id: str, assets_dir: Path, dry_run: bool = False) -> 
         if tenant is None:
             raise ValueError(f"Tenant {tenant_id!r} not found in database")
 
-        # Create a build_runs row (running).
-        build_run = BuildRun(
-            tenant_id=tenant_id,
-            status="running",
-            input_manifest={
+        image_names = sorted(
+            p.name
+            for p in (assets_dir / "images").iterdir()
+            if p.is_file()
+        ) if (assets_dir / "images").exists() else []
+
+        if build_run_id:
+            build_run = await session.get(BuildRun, build_run_id)
+            if build_run is None or build_run.tenant_id != tenant_id:
+                raise ValueError(f"Build run {build_run_id!r} not found for tenant")
+            build_run.status = "running"
+            build_run.input_manifest = {
+                "source": "api",
                 "assets_dir": str(assets_dir),
                 "dry_run": dry_run,
-                "images": sorted(
-                    p.name
-                    for p in (assets_dir / "images").iterdir()
-                    if p.is_file()
-                ) if (assets_dir / "images").exists() else [],
-            },
-            report={},
-            started_at=datetime.now(timezone.utc),
-        )
-        session.add(build_run)
-        await session.commit()
+                "images": image_names,
+            }
+            build_run.report = {
+                "ui_progress_pct": 10,
+                "ui_current_step": "collect_assets",
+            }
+            if not build_run.started_at:
+                build_run.started_at = datetime.now(timezone.utc)
+            await session.commit()
+        else:
+            # CLI path: create a build_runs row (running).
+            build_run = BuildRun(
+                tenant_id=tenant_id,
+                status="running",
+                input_manifest={
+                    "assets_dir": str(assets_dir),
+                    "dry_run": dry_run,
+                    "images": image_names,
+                },
+                report={},
+                started_at=datetime.now(timezone.utc),
+            )
+            session.add(build_run)
+            await session.commit()
+            build_run_id = build_run.id
 
         ctx = BuildContext(
             tenant_id=tenant_id,
             assets_dir=assets_dir,
             dry_run=dry_run,
             session=session,
+            build_run_id=build_run_id,
         )
 
         try:
@@ -83,15 +113,23 @@ async def run_build(tenant_id: str, assets_dir: Path, dry_run: bool = False) -> 
         except Exception as exc:
             logger.exception("Builder agent loop failed for tenant=%s", tenant_id)
             ctx.report.errors.append(str(exc))
-            # Mark build failed if not already handled by finalize_build.
             from sqlalchemy import update
+
+            build_run_filter = [BuildRun.id == build_run_id] if build_run_id else [
+                BuildRun.tenant_id == tenant_id,
+                BuildRun.status == "running",
+            ]
             await session.execute(
                 update(BuildRun)
-                .where(BuildRun.tenant_id == tenant_id, BuildRun.status == "running")
+                .where(*build_run_filter)
                 .values(
                     status="failed",
                     error=str(exc),
-                    report=ctx.report.to_dict(),
+                    report={
+                        **ctx.report.to_dict(),
+                        "ui_progress_pct": 100,
+                        "ui_current_step": "finalize",
+                    },
                     finished_at=datetime.now(timezone.utc),
                 )
             )
@@ -107,6 +145,10 @@ async def run_build(tenant_id: str, assets_dir: Path, dry_run: bool = False) -> 
 
 async def _agent_loop(ctx: BuildContext) -> None:
     """Anthropic tool-calling loop."""
+    from app.builder.business_info_loader import ensure_business_info_loaded
+
+    await ensure_business_info_loaded(ctx)
+
     model_cfg = get_model("builder")
     client = _get_anthropic()
 
@@ -180,6 +222,8 @@ async def _agent_loop(ctx: BuildContext) -> None:
             if block.type != "tool_use":
                 continue
             result_text = await dispatch(ctx, block.name, block.input)
+            if block.name != "finalize_build":
+                await update_ui_progress(ctx, block.name)
             tool_results.append({
                 "type": "tool_result",
                 "tool_use_id": block.id,

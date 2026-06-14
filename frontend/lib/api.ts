@@ -22,6 +22,7 @@ interface ApiClient {
   getBusinessInfo: () => Promise<BusinessInfoBlock[]>;
   saveBusinessInfo: (payload: BusinessInfoBlock[]) => Promise<BusinessInfoBlock[]>;
   getProducts: () => Promise<ProductDraft[]>;
+  syncProductsFromUploads: () => Promise<ProductDraft[]>;
   saveProducts: (products: ProductDraft[]) => Promise<ProductDraft[]>;
   createImageDraft: (file: File) => Promise<ProductImageDraft>;
   connectWhatsApp: (payload: WhatsAppConnectRequest) => Promise<WhatsAppConnection>;
@@ -77,11 +78,13 @@ async function requestJson<T>(
   init?: {
     method?: "GET" | "POST" | "PATCH" | "DELETE";
     body?: unknown;
+    timeoutMs?: number;
   },
 ): Promise<T> {
   const { token, userId, email } = await getSessionContext();
   const abortController = new AbortController();
-  const timeout = setTimeout(() => abortController.abort(), 15000);
+  const timeoutMs = init?.timeoutMs ?? 15000;
+  const timeout = setTimeout(() => abortController.abort(), timeoutMs);
   let response: Response;
   try {
     response = await fetch(toBackendUrl(path), {
@@ -100,9 +103,10 @@ async function requestJson<T>(
     });
   } catch (err) {
     const isTimeout = err instanceof DOMException && err.name === "AbortError";
+    const timeoutSec = Math.round(timeoutMs / 1000);
     throw new Error(
       isTimeout
-        ? `API ${path} timed out after 15 s — check backend URL and tunnel`
+        ? `API ${path} timed out after ${timeoutSec} s — check backend URL and tunnel`
         : `API ${path} network error — backend unreachable: ${String(err)}`,
     );
   } finally {
@@ -374,6 +378,25 @@ const realApi: ApiClient = {
     >("/api/products");
     return res.map((item) => mapApiProductToDraft(item));
   },
+  syncProductsFromUploads: async (): Promise<ProductDraft[]> => {
+    const res = await requestJson<
+      Array<{
+        id: string;
+        stable_key: string;
+        name_he: string;
+        name_en: string;
+        category: string;
+        price: number;
+        currency: "ILS";
+        in_stock: boolean;
+        colors: string;
+        materials: string;
+        style: string;
+        image?: { file_name?: string | null; storage_path: string; public_url?: string | null } | null;
+      }>
+    >("/api/products/sync-uploads", { method: "POST", timeoutMs: 120000 });
+    return res.map((item) => mapApiProductToDraft(item));
+  },
   saveProducts: async (products: ProductDraft[]) => {
     const res = await requestJson<
       Array<{
@@ -393,6 +416,7 @@ const realApi: ApiClient = {
     >("/api/products", {
       method: "POST",
       body: products.map((item) => mapProductToApiPayload(item)),
+      timeoutMs: 120000,
     });
     return res.map((item) => mapApiProductToDraft(item));
   },
@@ -456,12 +480,16 @@ const realApi: ApiClient = {
     return mapBuildRunFromApi(res);
   },
   getBuildRun: async (buildRunId: string): Promise<BuildRun | undefined> => {
-    const res = await requestJson<ApiBuildRun>(`/api/build-runs/${buildRunId}`);
+    const res = await requestJson<ApiBuildRun>(`/api/build-runs/${buildRunId}`, {
+      timeoutMs: 30000,
+    });
     activeBuildRunId = res.id;
     return mapBuildRunFromApi(res);
   },
   getLatestBuildRun: async (): Promise<BuildRun | undefined> => {
-    const res = await requestJson<ApiBuildRun | null>("/api/build-runs/latest");
+    const res = await requestJson<ApiBuildRun | null>("/api/build-runs/latest", {
+      timeoutMs: 30000,
+    });
     if (!res) return undefined;
     activeBuildRunId = res.id;
     return mapBuildRunFromApi(res);

@@ -15,13 +15,16 @@ class Asset:
     filename: str       # e.g. "sofa-white-3seat.webp"
     stem: str           # e.g. "sofa-white-3seat"
     path: Path
-    stable_key: str     # sku from CSV if present, else stem
+    stable_key: str     # sku / stable_key from CSV if present, else stem
     name_he: str | None = None
     name_en: str | None = None
     price: float | None = None
     currency: str = "ILS"
     category: str | None = None
     in_stock: bool = True
+    colors: str | None = None
+    materials: str | None = None
+    style: str | None = None
     csv_matched: bool = False
 
 
@@ -58,7 +61,8 @@ def load_assets(assets_dir: Path) -> tuple[list[Asset], list[str]]:
         row = csv_rows.get(stem)
         if row:
             sku = row.get("sku", "").strip()
-            stable_key = sku if sku else stem
+            stable_key_col = row.get("stable_key", "").strip()
+            stable_key = sku or stable_key_col or stem
             price_raw = row.get("price", "").strip()
             price = float(price_raw) if price_raw else None
             in_stock_raw = row.get("in_stock", "true").strip().lower()
@@ -74,6 +78,9 @@ def load_assets(assets_dir: Path) -> tuple[list[Asset], list[str]]:
                 currency=row.get("currency", "ILS").strip() or "ILS",
                 category=row.get("category", "").strip() or None,
                 in_stock=in_stock,
+                colors=row.get("colors", "").strip() or None,
+                materials=row.get("materials", "").strip() or None,
+                style=row.get("style", "").strip() or None,
                 csv_matched=True,
             )
         else:

@@ -21,6 +21,7 @@ class BuildContext:
     assets_dir: Path
     dry_run: bool
     session: AsyncSession
+    build_run_id: str | None = None
     report: BuildReport = field(default_factory=BuildReport)
     self_test_passed: bool = False
     # Business info accumulates here; written to DB during index_embeddings.

@@ -144,6 +144,9 @@ async def _list_uploaded_assets(ctx: BuildContext) -> str:
                 "currency": a.currency,
                 "category": a.category,
                 "in_stock": a.in_stock,
+                "colors": a.colors,
+                "materials": a.materials,
+                "style": a.style,
                 "csv_matched": a.csv_matched,
             }
             for a in assets

@@ -32,12 +32,10 @@ export default function BusinessOnboardingPage() {
   const navigate = useNavigate();
   const { t } = useLocale();
   const supabase = useMemo(() => createClient(), []);
-  const { tenant, setTenant, businessInfo, setBusinessInfo } = useOnboardingStore();
-  const [tenantName, setTenantName] = useState(tenant?.name ?? "");
-  const [tenantDescription, setTenantDescription] = useState(tenant?.description ?? "");
-  const [blocks, setBlocks] = useState<BusinessInfoBlock[]>(
-    businessInfo.length ? normalizeBusinessInfoBlocks(businessInfo) : DEFAULT_BUSINESS_INFO_BLOCKS,
-  );
+  const { setTenant, setBusinessInfo } = useOnboardingStore();
+  const [tenantName, setTenantName] = useState("");
+  const [tenantDescription, setTenantDescription] = useState("");
+  const [blocks, setBlocks] = useState<BusinessInfoBlock[]>(DEFAULT_BUSINESS_INFO_BLOCKS);
   const [saving, setSaving] = useState(false);
   const [hydrating, setHydrating] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -57,6 +55,8 @@ export default function BusinessOnboardingPage() {
       const me = await api.getMe(session.user.email);
       if (me.tenant) {
         setTenant(me.tenant);
+        setTenantName(me.tenant.name ?? "");
+        setTenantDescription(me.tenant.description ?? "");
       }
       if (me.tenant) {
         const info = await api.getBusinessInfo();

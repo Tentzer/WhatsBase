@@ -7,6 +7,7 @@ import logging
 
 from sqlalchemy import delete, select, text, update
 
+from app.builder.business_info_loader import ensure_business_info_loaded, merge_business_info_items
 from app.builder.context import BuildContext, BusinessInfoItem
 from app.builder.prompts import render_conversation_prompt
 from app.core.schema import Agent, BusinessInfo, Embedding, Product, Tenant
@@ -17,7 +18,7 @@ logger = logging.getLogger(__name__)
 async def add_business_info(ctx: BuildContext, topic: str, content_he: str, content_en: str) -> str:
     """Accumulate a business_info record. Written to DB during index_embeddings."""
     item = BusinessInfoItem(topic=topic, content_he=content_he, content_en=content_en)
-    ctx.business_info_items.append(item)
+    ctx.business_info_items = merge_business_info_items(ctx.business_info_items, [item])
     ctx.report.business_info.append(f"{topic}: {content_en[:60]}")
     logger.info("queued business_info: topic=%s", topic)
     return json.dumps({"status": "queued", "topic": topic})
@@ -26,6 +27,8 @@ async def add_business_info(ctx: BuildContext, topic: str, content_he: str, cont
 async def generate_system_prompt(ctx: BuildContext, draft: str) -> str:
     """Compose and persist the tenant's system prompt from the build draft."""
     session = ctx.session
+
+    await ensure_business_info_loaded(ctx)
 
     # Get business name + description from tenant row.
     tenant_result = await session.execute(
@@ -131,7 +134,9 @@ async def index_embeddings(ctx: BuildContext) -> str:
     session = ctx.session
     tenant_id = ctx.tenant_id
 
-    # --- Write business_info rows (delete-then-insert for idempotency) ---
+    await ensure_business_info_loaded(ctx)
+
+    # --- Sync business_info rows (replace only when we have records to write) ---
     if ctx.business_info_items:
         await session.execute(
             delete(BusinessInfo).where(BusinessInfo.tenant_id == tenant_id)

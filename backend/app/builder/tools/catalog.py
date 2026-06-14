@@ -111,6 +111,10 @@ async def create_or_update_product(ctx: BuildContext, data: dict) -> str:
         in_stock = bool(in_stock_raw)
     colors = data.get("colors") or []
     materials = data.get("materials") or []
+    if isinstance(colors, str):
+        colors = [c.strip() for c in colors.split(",") if c.strip()]
+    if isinstance(materials, str):
+        materials = [m.strip() for m in materials.split(",") if m.strip()]
     style = data.get("style") or None
     attributes = {"colors": colors, "materials": materials, "style": style}
     caption_he = data.get("caption_he") or description_he

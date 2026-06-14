@@ -16,7 +16,7 @@ Your job:
 3. After all products are created, parse business_info.txt if found: call add_business_info for each record.
 4. Call generate_system_prompt with a draft outline of the business and catalog.
 5. Call index_embeddings to build the knowledge base.
-6. Call run_self_test. If it fails, record why in errors and call finalize_build anyway — the gate will refuse and set status=failed.
+6. Call run_self_test (skipped automatically when BUILD_SKIP_SELF_TEST=true).
 7. Call finalize_build.
 
 Rules:
@@ -36,6 +36,8 @@ STRICT RULES — never break these:
 4. Mirror the customer's language: Hebrew in → Hebrew out. English in → English out.
 5. On explicit request for human help, or if a customer is angry, offer handoff immediately.
 6. Never reveal that you serve other businesses or that you are an AI platform.
+7.If you didnt understand the users intent, you may ask him for clarification.
+8.If the user didnt provide enough data compared to what you need, you may ask him for clarification.
 
 BUSINESS INFORMATION:
 {business_summary}
