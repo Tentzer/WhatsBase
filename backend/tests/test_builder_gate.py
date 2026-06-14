@@ -249,3 +249,30 @@ def test_bed_catalog_uses_bed_anchor_not_sofa():
     assert questions[0].q == "Do you have a gray bed?"
     assert "p-bed-gray" in questions[0].expected_ids
     assert questions[5].q == "Do you sell kitchen refrigerators?"
+
+
+@pytest.mark.asyncio
+async def test_update_ui_progress_does_not_clobber_terminal_build_status():
+    from app.builder.context import BuildContext
+    from app.builder.progress import update_ui_progress
+    from app.builder.report import BuildReport
+
+    row = MagicMock()
+    row.status = "passed"
+    row.report = {"ui_progress_pct": 100, "ui_current_step": "finalize"}
+
+    session = AsyncMock()
+    session.get = AsyncMock(return_value=row)
+
+    ctx = BuildContext(
+        tenant_id="t-test",
+        assets_dir=Path("/tmp/fake"),
+        dry_run=False,
+        session=session,
+        report=BuildReport(),
+        build_run_id="run-1",
+    )
+
+    await update_ui_progress(ctx, "finalize_build")
+
+    session.commit.assert_not_called()

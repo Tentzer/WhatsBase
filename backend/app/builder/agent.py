@@ -218,7 +218,8 @@ async def _agent_loop(ctx: BuildContext) -> None:
             if block.type != "tool_use":
                 continue
             result_text = await dispatch(ctx, block.name, block.input)
-            await update_ui_progress(ctx, block.name)
+            if block.name != "finalize_build":
+                await update_ui_progress(ctx, block.name)
             tool_results.append({
                 "type": "tool_result",
                 "tool_use_id": block.id,

@@ -24,6 +24,8 @@ async def update_ui_progress(ctx: BuildContext, tool_name: str) -> None:
     row = await ctx.session.get(BuildRun, ctx.build_run_id)
     if row is None:
         return
+    if row.status in {"passed", "failed"}:
+        return
 
     report = dict(row.report or {})
     current_pct = int(report.get("ui_progress_pct", 0))
