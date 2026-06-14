@@ -279,7 +279,7 @@ function CatalogDialog({
 
       <DialogContent
         showCloseButton
-        className="flex max-h-[90vh] max-w-5xl flex-col gap-0 overflow-hidden p-0"
+        className="flex max-h-[92vh] w-[95vw] max-w-[95vw] flex-col gap-0 overflow-hidden p-0"
       >
         <DialogHeader className="flex-none border-b px-6 py-4">
           <DialogTitle className="flex items-center gap-2">
@@ -297,7 +297,7 @@ function CatalogDialog({
               {t("No products yet.", "אין מוצרים עדיין.")}
             </p>
           ) : (
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
               {rows.map((row) => {
                 const name = displayName(row);
                 const isEditing = editingId === row.id;
