@@ -73,6 +73,11 @@ export default function BuildPage() {
 
   const isLive = agentStatus === "live" || run?.status === "passed";
   const buildInProgress = running || run?.status === "running" || run?.status === "queued";
+  const buildSucceeded = isLive && !buildInProgress;
+  const buildFailed = run?.status === "failed" && !buildInProgress;
+  const atFullProgress = (run?.progressPct ?? 0) >= 100;
+  const showBuildProgress = Boolean(buildInProgress && run);
+  const showProgressBar = showBuildProgress && !atFullProgress;
 
   const runBuild = async (mode: "full" | "incremental") => {
     setRunning(true);
@@ -138,7 +143,7 @@ export default function BuildPage() {
     : run?.status === "failed"
       ? t("Retry build", "נסו שוב")
       : isLive
-        ? t("Rebuild agent", "בנייה מחדש")
+        ? t("Rebuild", "בנייה מחדש")
         : t("Build my agent", "בנו את הסוכן");
 
   if (hydrating) {
@@ -158,10 +163,50 @@ export default function BuildPage() {
           <CardDescription>{pageDescription}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
-          {isLive && !buildInProgress ? (
-            <div className="flex items-center gap-2 rounded-md bg-emerald-50 p-3 text-sm text-emerald-800">
-              <CheckCircle2 className="size-4" />
-              {t("Your agent is live.", "הסוכן שלכם בלייב.")}
+          {showBuildProgress ? (
+            <div className="space-y-3 rounded-lg border p-4">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">{stepLabel}</span>
+                {!atFullProgress ? (
+                  <span className="font-medium tabular-nums">{run?.progressPct}%</span>
+                ) : null}
+              </div>
+              {showProgressBar ? <Progress value={run?.progressPct ?? 0} /> : null}
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="size-4 animate-spin" />
+                {atFullProgress
+                  ? t("Finishing up...", "מסיימים...")
+                  : t("Builder is running...", "הבילדר רץ...")}
+              </div>
+            </div>
+          ) : null}
+
+          {buildSucceeded ? (
+            <div className="flex items-start gap-3 rounded-lg border border-emerald-200 bg-emerald-50/80 px-4 py-3">
+              <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-emerald-100">
+                <CheckCircle2 className="size-4 text-emerald-600" />
+              </div>
+              <div className="space-y-0.5">
+                <p className="text-sm font-medium text-emerald-900">
+                  {t("Build complete — your agent is live", "הבנייה הושלמה — הסוכן בלייב")}
+                </p>
+                <p className="text-xs text-emerald-700">
+                  {t(
+                    "Test it in chat or continue to connect WhatsApp.",
+                    "בדקו בצ׳אט או המשיכו לחיבור וואטסאפ.",
+                  )}
+                </p>
+              </div>
+            </div>
+          ) : null}
+
+          {buildFailed ? (
+            <div className="flex items-start gap-2 rounded-md bg-red-50 p-3 text-sm text-red-800">
+              <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+              <span>
+                {error ??
+                  t("Build failed. Review the report or retry.", "הבנייה נכשלה. בדקו את הדוח או נסו שוב.")}
+              </span>
             </div>
           ) : null}
 
@@ -177,46 +222,16 @@ export default function BuildPage() {
                   onClick={startIncrementalBuild}
                   disabled={running}
                 >
-                  {running
-                    ? t("Starting...", "מתחיל...")
-                    : t("Rebuild with new data", "בנייה מחדש עם מוצרים חדשים")}
+                  {t("Rebuild with new data", "בנייה מחדש עם מוצרים חדשים")}
                 </Button>
               ) : null}
             </div>
           ) : null}
 
-          {error ? (
+          {error && !buildFailed ? (
             <div className="flex items-start gap-2 rounded-md bg-red-50 p-3 text-sm text-red-800">
               <AlertTriangle className="mt-0.5 size-4 shrink-0" />
               <span>{error}</span>
-            </div>
-          ) : null}
-
-          {run ? (
-            <div className="space-y-4 rounded-lg border p-4">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">{stepLabel}</span>
-                <span className="font-medium">{run.progressPct}%</span>
-              </div>
-              <Progress value={run.progressPct} />
-              {run.status === "running" || run.status === "queued" || running ? (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Loader2 className="size-4 animate-spin" />
-                  {t("Builder is running...", "הבילדר רץ...")}
-                </div>
-              ) : null}
-              {run.status === "passed" ? (
-                <div className="flex items-center gap-2 rounded-md bg-emerald-50 p-3 text-sm text-emerald-800">
-                  <CheckCircle2 className="size-4" />
-                  {t("Build passed and agent is live.", "הבנייה עברה והסוכן בלייב.")}
-                </div>
-              ) : null}
-              {run.status === "failed" ? (
-                <div className="flex items-center gap-2 rounded-md bg-red-50 p-3 text-sm text-red-800">
-                  <AlertTriangle className="size-4" />
-                  {t("Build failed. Review the report or retry.", "הבנייה נכשלה. בדקו את הדוח או נסו שוב.")}
-                </div>
-              ) : null}
             </div>
           ) : null}
 
