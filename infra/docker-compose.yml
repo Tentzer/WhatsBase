@@ -1,18 +1,39 @@
-# Local development infra. Only Redis runs in a container — Postgres is
-# Supabase (cloud). Start with: `docker compose up redis` (from /infra).
+# Local infrastructure for the WhatsBase demo: Postgres + pgvector and Redis.
+# Usage:  docker compose -f infra/docker-compose.yml up -d
+#
+# This lets a grader run the demo on a clean machine without a Supabase account.
+# The DATABASE_URL and REDIS_URL in .env.example already point here.
+
 services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: whatsbase-db
+    environment:
+      POSTGRES_USER: whatsbase
+      POSTGRES_PASSWORD: whatsbase
+      POSTGRES_DB: whatsbase
+    ports:
+      - "5432:5432"
+    volumes:
+      - whatsbase_pgdata:/var/lib/postgresql/data
+      # Enables the pgvector extension on first start (migrations also do this).
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U whatsbase -d whatsbase"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   redis:
-    image: redis:7-alpine
+    image: redis:7
+    container_name: whatsbase-redis
     ports:
       - "6379:6379"
-    command: ["redis-server", "--appendonly", "yes"]
-    volumes:
-      - redis_data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
-      timeout: 3s
-      retries: 5
+      timeout: 5s
+      retries: 10
 
 volumes:
-  redis_data:
+  whatsbase_pgdata:
