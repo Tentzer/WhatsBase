@@ -54,25 +54,31 @@ export default function BuildPage() {
 
   useEffect(() => {
     void (async () => {
-      try {
-        const [status, latestRun] = await Promise.all([
-          api.getAgentStatus(),
-          api.getLatestBuildRun(),
-        ]);
-        setAgentStatus(status);
-        if (latestRun) {
-          setRun(latestRun);
-        }
-      } catch (err) {
-        console.error("Failed to load build page state:", err);
-      } finally {
-        setHydrating(false);
+      const [statusResult, latestRunResult] = await Promise.allSettled([
+        api.getAgentStatus(),
+        api.getLatestBuildRun(),
+      ]);
+
+      if (statusResult.status === "fulfilled") {
+        setAgentStatus(statusResult.value);
+      } else {
+        console.error("Failed to load agent status:", statusResult.reason);
       }
+
+      if (latestRunResult.status === "fulfilled" && latestRunResult.value) {
+        setRun(latestRunResult.value);
+      } else if (latestRunResult.status === "rejected") {
+        console.error("Failed to load latest build run:", latestRunResult.reason);
+      }
+
+      setHydrating(false);
     })();
   }, []);
 
   const isLive = agentStatus === "live" || run?.status === "passed";
-  const buildInProgress = running || run?.status === "running" || run?.status === "queued";
+  const buildInProgress =
+    running ||
+    ((run?.status === "running" || run?.status === "queued") && agentStatus !== "live");
   const buildSucceeded = isLive && !buildInProgress;
   const buildFailed = run?.status === "failed" && !buildInProgress;
   const atFullProgress = (run?.progressPct ?? 0) >= 100;

@@ -435,6 +435,24 @@ async def start_incremental_build(
     return _map_build_run(build_run)
 
 
+@router.get("/build-runs/latest", response_model=BuildRunResponse | None)
+async def get_latest_build_run(
+    ctx: AuthContext = Depends(get_auth_context),
+    session: AsyncSession = Depends(get_session),
+) -> BuildRunResponse | None:
+    tenant_id = require_tenant(ctx)
+    result = await session.execute(
+        select(BuildRun)
+        .where(BuildRun.tenant_id == tenant_id)
+        .order_by(BuildRun.created_at.desc())
+        .limit(1)
+    )
+    row = result.scalar_one_or_none()
+    if row is None:
+        return None
+    return _map_build_run(row)
+
+
 @router.get("/build-runs/{build_run_id}", response_model=BuildRunResponse)
 async def get_build_run(
     build_run_id: str,
