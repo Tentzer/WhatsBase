@@ -279,7 +279,7 @@ function CatalogDialog({
 
       <DialogContent
         showCloseButton
-        className="flex max-h-[92vh] w-[95vw] max-w-[95vw] flex-col gap-0 overflow-hidden p-0"
+        className="flex h-[96vh] w-[96vw] max-w-[96vw] flex-col gap-0 overflow-hidden p-0"
       >
         <DialogHeader className="flex-none border-b px-6 py-4">
           <DialogTitle className="flex items-center gap-2">
@@ -291,13 +291,13 @@ function CatalogDialog({
           </DialogTitle>
         </DialogHeader>
 
-        <div className="flex-1 overflow-y-auto overscroll-contain p-6">
+        <div className="flex-1 overflow-y-auto overscroll-contain p-8">
           {rows.length === 0 ? (
             <p className="text-center text-sm text-muted-foreground py-12">
               {t("No products yet.", "אין מוצרים עדיין.")}
             </p>
           ) : (
-            <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+            <div className="grid grid-cols-2 gap-6 sm:grid-cols-3">
               {rows.map((row) => {
                 const name = displayName(row);
                 const isEditing = editingId === row.id;
@@ -311,7 +311,7 @@ function CatalogDialog({
                     className="group overflow-hidden rounded-xl border bg-card shadow-soft transition-shadow hover:shadow-elevated"
                   >
                     {/* Product image */}
-                    <div className="relative aspect-square w-full overflow-hidden bg-muted">
+                    <div className="relative aspect-[4/5] w-full overflow-hidden bg-muted">
                       <LazyProductImage src={imgSrc} alt={name} className="absolute inset-0 h-full w-full" />
 
                       {/* Action buttons overlay */}
