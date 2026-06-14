@@ -371,6 +371,23 @@ async def save_products(
     return await _product_responses_for_tenant(session, tenant_id)
 
 
+@router.delete("/products/{product_id}", status_code=204)
+async def delete_product(
+    product_id: str,
+    ctx: AuthContext = Depends(get_auth_context),
+    session: AsyncSession = Depends(get_session),
+) -> None:
+    tenant_id = require_tenant(ctx)
+    result = await session.execute(
+        select(Product).where(Product.id == product_id, Product.tenant_id == tenant_id)
+    )
+    product = result.scalar_one_or_none()
+    if product is None:
+        raise HTTPException(status_code=404, detail="Product not found")
+    await session.delete(product)
+    await session.commit()
+
+
 @router.get("/whatsapp/status", response_model=WhatsAppStatusResponse)
 async def get_whatsapp_status(
     ctx: AuthContext = Depends(get_auth_context),

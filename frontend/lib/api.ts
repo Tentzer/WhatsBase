@@ -24,6 +24,7 @@ interface ApiClient {
   getProducts: () => Promise<ProductDraft[]>;
   syncProductsFromUploads: () => Promise<ProductDraft[]>;
   saveProducts: (products: ProductDraft[]) => Promise<ProductDraft[]>;
+  deleteProduct: (id: string) => Promise<void>;
   createImageDraft: (file: File) => Promise<ProductImageDraft>;
   connectWhatsApp: (payload: WhatsAppConnectRequest) => Promise<WhatsAppConnection>;
   getWhatsAppStatus: () => Promise<WhatsAppConnection>;
@@ -419,6 +420,9 @@ const realApi: ApiClient = {
       timeoutMs: 120000,
     });
     return res.map((item) => mapApiProductToDraft(item));
+  },
+  deleteProduct: async (id: string): Promise<void> => {
+    await requestJson<void>(`/api/products/${id}`, { method: "DELETE" });
   },
   createImageDraft: async (file: File): Promise<ProductImageDraft> => {
     const form = new FormData();

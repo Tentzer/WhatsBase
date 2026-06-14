@@ -3,7 +3,7 @@
 import Papa from "papaparse";
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { useNavigate } from "@/components/navigation-progress";
-import { Loader2, Trash2, Upload } from "lucide-react";
+import { ImageIcon, Loader2, Trash2, Upload } from "lucide-react";
 import { WizardStepper } from "@/components/wizard-stepper";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -21,6 +21,54 @@ interface BulkUploadProgress {
   source: BulkUploadSource;
   completed: number;
   total: number;
+}
+
+/** True if the id looks like a UUID (saved to the DB), false for local draft ids. */
+function isDbId(id: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+}
+
+function LazyProductImage({ src, alt }: { src: string; alt: string }) {
+  const [loaded, setLoaded] = useState(false);
+  const [visible, setVisible] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry?.isIntersecting) {
+          setVisible(true);
+          observer.disconnect();
+        }
+      },
+      { threshold: 0.05 },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <div
+      ref={ref}
+      className="flex h-10 w-10 flex-none items-center justify-center overflow-hidden rounded-md border bg-muted"
+    >
+      {visible && src ? (
+        <>
+          <img
+            src={src}
+            alt={alt}
+            className={`h-full w-full object-cover transition-opacity duration-300 ${loaded ? "opacity-100" : "opacity-0"}`}
+            onLoad={() => setLoaded(true)}
+          />
+          {!loaded && <ImageIcon className="absolute size-4 text-muted-foreground" />}
+        </>
+      ) : (
+        <ImageIcon className="size-4 text-muted-foreground/50" />
+      )}
+    </div>
+  );
 }
 
 function UploadProgressBar({
@@ -372,8 +420,24 @@ export default function ProductsOnboardingPage() {
       ? (bulkUploadProgress.completed / bulkUploadProgress.total) * 100
       : 0;
 
-  const removeProduct = (id: string) => {
-    setRows((prev) => prev.filter((item) => item.id !== id));
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const removeProduct = async (id: string) => {
+    setDeletingId(id);
+    try {
+      if (isDbId(id)) {
+        await api.deleteProduct(id);
+      }
+      setRows((prev) => prev.filter((item) => item.id !== id));
+    } catch (err) {
+      setUploadError(
+        err instanceof Error
+          ? err.message
+          : t("Failed to delete product.", "מחיקת המוצר נכשלה."),
+      );
+    } finally {
+      setDeletingId(null);
+    }
   };
 
   const updateProduct = (id: string, field: keyof ProductDraft, value: string | number) => {
@@ -514,68 +578,102 @@ export default function ProductsOnboardingPage() {
               </div>
               <div className="max-h-[min(60vh,32rem)] overflow-y-auto overscroll-contain">
                 <div className="space-y-3 p-3">
-                  {rows.map((row) => (
-                    <div key={row.id} className="grid gap-3 rounded-lg border bg-background p-4">
-                      <div className="grid gap-3 md:grid-cols-2">
-                        <Input
-                          value={row.nameEn}
-                          onChange={(event) => updateProduct(row.id, "nameEn", event.target.value)}
-                          placeholder="Name (EN)"
-                        />
-                        <Input
-                          value={row.nameHe}
-                          onChange={(event) => updateProduct(row.id, "nameHe", event.target.value)}
-                          placeholder="שם (HE)"
-                        />
-                        <Input
-                          value={row.category}
-                          onChange={(event) => updateProduct(row.id, "category", event.target.value)}
-                          placeholder="Category"
-                        />
-                        <Input
-                          type="number"
-                          value={row.price}
-                          onChange={(event) => updateProduct(row.id, "price", event.target.value)}
-                          placeholder="Price"
-                        />
-                      </div>
-                      <div className="flex flex-col gap-2">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Label
-                            className={`cursor-pointer rounded-md border px-3 py-2 text-sm hover:bg-accent ${rowUploadingId === row.id ? "pointer-events-none opacity-60" : ""}`}
-                          >
-                            <Upload className="me-1 inline size-4" />
-                            {rowUploadingId === row.id
-                              ? t("Uploading...", "מעלה...")
-                              : t("Attach image", "הוספת תמונה")}
-                            <Input
-                              type="file"
-                              accept="image/*"
-                              className="hidden"
-                              disabled={rowUploadingId === row.id || bulkUploading}
-                              onChange={(event) => {
-                                void onImageUpload(row.id, event.target.files?.[0] ?? null);
-                                event.target.value = "";
-                              }}
-                            />
-                          </Label>
-                          <span className="text-sm text-muted-foreground">
-                            {row.image?.fileName ?? t("No image selected", "לא נבחרה תמונה")}
+                  {rows.map((row) => {
+                    const displayName = row.nameEn || row.nameHe || row.stableKey;
+                    const hasImage = Boolean(row.image?.previewUrl || row.image?.storagePath);
+                    const isDeleting = deletingId === row.id;
+
+                    return (
+                      <div key={row.id} className="overflow-hidden rounded-lg border bg-background">
+                        {/* Row header: thumbnail + name + delete */}
+                        <div className="flex items-center gap-3 border-b bg-muted/30 px-3 py-2">
+                          <LazyProductImage
+                            src={row.image?.previewUrl ?? ""}
+                            alt={displayName}
+                          />
+                          <span className="min-w-0 flex-1 truncate text-sm font-medium" title={displayName}>
+                            {displayName}
                           </span>
-                          <Button type="button" variant="ghost" size="sm" onClick={() => removeProduct(row.id)}>
-                            <Trash2 className="size-4" />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="flex-none text-muted-foreground hover:text-destructive"
+                            disabled={isDeleting}
+                            onClick={() => void removeProduct(row.id)}
+                            aria-label={t("Delete product", "מחיקת מוצר")}
+                          >
+                            {isDeleting ? (
+                              <Loader2 className="size-4 animate-spin" />
+                            ) : (
+                              <Trash2 className="size-4" />
+                            )}
                           </Button>
                         </div>
-                        {rowUploadingId === row.id ? (
-                          <UploadProgressBar
-                            label={t("Uploading image...", "מעלה תמונה...")}
-                            value={0}
-                            indeterminate
+
+                        {/* Editable fields */}
+                        <div className="grid gap-3 p-3 md:grid-cols-2">
+                          <Input
+                            value={row.nameEn}
+                            onChange={(event) => updateProduct(row.id, "nameEn", event.target.value)}
+                            placeholder="Name (EN)"
                           />
-                        ) : null}
+                          <Input
+                            value={row.nameHe}
+                            onChange={(event) => updateProduct(row.id, "nameHe", event.target.value)}
+                            placeholder="שם (HE)"
+                          />
+                          <Input
+                            value={row.category}
+                            onChange={(event) => updateProduct(row.id, "category", event.target.value)}
+                            placeholder="Category"
+                          />
+                          <Input
+                            type="number"
+                            value={row.price}
+                            onChange={(event) => updateProduct(row.id, "price", event.target.value)}
+                            placeholder="Price"
+                          />
+                        </div>
+
+                        {/* Image row — only show attach button when no image */}
+                        {!hasImage && (
+                          <div className="flex flex-col gap-2 px-3 pb-3">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Label
+                                className={`cursor-pointer rounded-md border px-3 py-2 text-sm hover:bg-accent ${rowUploadingId === row.id ? "pointer-events-none opacity-60" : ""}`}
+                              >
+                                <Upload className="me-1 inline size-4" />
+                                {rowUploadingId === row.id
+                                  ? t("Uploading...", "מעלה...")
+                                  : t("Attach image", "הוספת תמונה")}
+                                <Input
+                                  type="file"
+                                  accept="image/*"
+                                  className="hidden"
+                                  disabled={rowUploadingId === row.id || bulkUploading}
+                                  onChange={(event) => {
+                                    void onImageUpload(row.id, event.target.files?.[0] ?? null);
+                                    event.target.value = "";
+                                  }}
+                                />
+                              </Label>
+                              <span className="text-sm text-muted-foreground">
+                                {t("No image selected", "לא נבחרה תמונה")}
+                              </span>
+                            </div>
+                            {rowUploadingId === row.id ? (
+                              <UploadProgressBar
+                                label={t("Uploading image...", "מעלה תמונה...")}
+                                value={0}
+                                indeterminate
+                              />
+                            ) : null}
+                          </div>
+                        )}
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             </div>

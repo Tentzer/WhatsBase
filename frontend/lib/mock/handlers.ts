@@ -157,6 +157,10 @@ export const mockApi = {
     return products;
   },
 
+  async deleteProduct(id: string): Promise<void> {
+    updateState((prev) => ({ ...prev, products: prev.products.filter((p) => p.id !== id) }));
+  },
+
   async createImageDraft(file: File): Promise<ProductImageDraft> {
     const previewUrl = URL.createObjectURL(file);
     const relativePath = "webkitRelativePath" in file ? String(file.webkitRelativePath || "") : "";
