@@ -3,8 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Moon, Sun } from "lucide-react";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Moon, Sun, BarChart3 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { FloatingChat } from "@/components/floating-chat";
 import { LangfusePanel } from "@/components/langfuse-panel";
 import { NavigationProgressProvider } from "@/components/navigation-progress";
@@ -66,17 +66,51 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <NavigationProgressProvider>
     <OnboardingSessionGuard />
     <div className="min-h-screen text-foreground">
-      <header className="sticky top-0 z-40 border-b bg-card/80 backdrop-blur-md">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
-          <Link href="/" className="text-xl font-extrabold tracking-tight text-emerald-700">
-            WhatsBase
-          </Link>
-          <div className="flex items-center gap-2">
+      <header className="sticky top-0 z-40 glass border-b border-border/50">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3">
+          <div className="flex items-center gap-5">
+            <Link
+              href="/"
+              className="font-heading text-lg font-bold tracking-tight"
+            >
+              Whats<span className="text-brand">Base</span>
+            </Link>
+
+            {/* Primary nav — segmented pill */}
+            <nav className="hidden items-center gap-1 rounded-xl border border-border/60 bg-card/50 p-1 ring-hairline sm:flex">
+              <Link
+                href="/onboarding/business"
+                className={cn(
+                  "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
+                  isOnboarding
+                    ? "bg-brand/10 text-brand"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {t("Onboarding", "אונבורדינג")}
+              </Link>
+              <Link
+                href="/test-chat"
+                className={cn(
+                  "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
+                  isTestChat
+                    ? "bg-brand/10 text-brand"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {t("Test Chat", "צ׳אט בדיקה")}
+              </Link>
+            </nav>
+          </div>
+
+          <div className="flex items-center gap-1.5">
             <Button
               type="button"
-              variant="outline"
+              variant="ghost"
               size="sm"
+              className="font-mono text-xs"
               onClick={() => setLocale(locale === "en" ? "he" : "en")}
+              aria-label="Toggle language"
             >
               {locale === "en" ? "HE" : "EN"}
             </Button>
@@ -84,60 +118,59 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <div ref={analyticsRef} className="relative">
                 <Button
                   type="button"
-                  variant="outline"
-                  size="sm"
+                  variant="ghost"
+                  size="icon-sm"
                   className={cn(
-                    analyticsOpen &&
-                      "border-emerald-500 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-400",
+                    analyticsOpen && "bg-brand/10 text-brand",
                   )}
                   onClick={() => setAnalyticsOpen((prev) => !prev)}
+                  aria-label="Analytics"
                 >
-                  📊 Analytics
+                  <BarChart3 className="size-4" />
                 </Button>
                 {analyticsOpen ? <LangfusePanel isOpen={analyticsOpen} /> : null}
               </div>
             ) : null}
             <Button
               type="button"
-              variant="outline"
-              size="sm"
+              variant="ghost"
+              size="icon-sm"
               onClick={toggleTheme}
               aria-label={theme === "light" ? "Switch to dark mode" : "Switch to light mode"}
             >
               {theme === "light" ? <Sun className="size-4" /> : <Moon className="size-4" />}
             </Button>
-            <Link
-              href="/onboarding/business"
-              className={cn(
-                buttonVariants({ size: "sm" }),
-                isOnboarding
-                  ? "border-emerald-500 bg-emerald-50 text-emerald-700 shadow-none dark:bg-emerald-950/50 dark:text-emerald-400"
-                  : "border-border bg-background text-foreground hover:bg-muted dark:border-input dark:bg-input/30 dark:hover:bg-input/50",
-                "border",
-              )}
-            >
-              {t("Onboarding", "אונבורדינג")}
-            </Link>
-            <Link
-              href="/test-chat"
-              className={cn(
-                buttonVariants({ size: "sm" }),
-                isTestChat
-                  ? "border-emerald-500 bg-emerald-50 text-emerald-700 shadow-none dark:bg-emerald-950/50 dark:text-emerald-400"
-                  : "border-border bg-background text-foreground hover:bg-muted dark:border-input dark:bg-input/30 dark:hover:bg-input/50",
-                "border",
-              )}
-            >
-              {t("Test Chat", "צ׳אט בדיקה")}
-            </Link>
             <FloatingChat />
-            <Button type="button" size="sm" onClick={signOut}>
+            <div className="mx-1 hidden h-5 w-px bg-border sm:block" />
+            <Button type="button" variant="outline" size="sm" onClick={signOut}>
               {t("Sign out", "התנתקות")}
             </Button>
           </div>
         </div>
+
+        {/* Mobile nav */}
+        <nav className="flex items-center gap-1 border-t border-border/50 px-4 py-2 sm:hidden">
+          <Link
+            href="/onboarding/business"
+            className={cn(
+              "flex-1 rounded-lg px-3 py-1.5 text-center text-sm font-medium transition-colors",
+              isOnboarding ? "bg-brand/10 text-brand" : "text-muted-foreground",
+            )}
+          >
+            {t("Onboarding", "אונבורדינג")}
+          </Link>
+          <Link
+            href="/test-chat"
+            className={cn(
+              "flex-1 rounded-lg px-3 py-1.5 text-center text-sm font-medium transition-colors",
+              isTestChat ? "bg-brand/10 text-brand" : "text-muted-foreground",
+            )}
+          >
+            {t("Test Chat", "צ׳אט בדיקה")}
+          </Link>
+        </nav>
       </header>
-      <main className="mx-auto max-w-6xl px-4 py-6">{children}</main>
+      <main className="mx-auto max-w-6xl px-4 py-8">{children}</main>
     </div>
     </NavigationProgressProvider>
   );

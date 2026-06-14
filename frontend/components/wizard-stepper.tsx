@@ -21,12 +21,12 @@ export function WizardStepper() {
   const currentIndex = steps.findIndex((s) => s.href === pathname);
 
   return (
-    <nav aria-label="Onboarding progress" className="mb-8">
+    <nav aria-label="Onboarding progress" className="mb-10">
       <ol className="relative flex items-start justify-between">
         {/* Background track — from center of step 1 to center of step N */}
         <li
           aria-hidden
-          className="pointer-events-none absolute top-4 h-px bg-border"
+          className="pointer-events-none absolute top-5 h-0.5 rounded-full bg-border"
           style={{
             left: `calc(100% / ${steps.length * 2})`,
             right: `calc(100% / ${steps.length * 2})`,
@@ -37,7 +37,7 @@ export function WizardStepper() {
         {currentIndex > 0 && (
           <li
             aria-hidden
-            className="pointer-events-none absolute top-4 h-px bg-emerald-500 transition-all duration-500"
+            className="pointer-events-none absolute top-5 h-0.5 rounded-full bg-gradient-to-r from-[var(--brand)] to-[var(--brand-accent)] transition-all duration-500"
             style={{
               left: `calc(100% / ${steps.length * 2})`,
               width: `calc(${currentIndex} * 100% / ${steps.length})`,
@@ -50,24 +50,23 @@ export function WizardStepper() {
           const isActive = index === currentIndex;
 
           return (
-            <li key={step.href} className="relative flex flex-1 flex-col items-center gap-2">
+            <li key={step.href} className="relative flex flex-1 flex-col items-center gap-2.5">
               <button
                 type="button"
                 onClick={() => navigate(step.href)}
                 aria-current={isActive ? "step" : undefined}
-                className="group flex flex-col items-center gap-2 focus-visible:outline-none"
+                className="group flex flex-col items-center gap-2.5 focus-visible:outline-none"
               >
                 {/* Circle */}
                 <span
                   className={cn(
-                    "relative z-10 flex h-8 w-8 items-center justify-center rounded-full border-2 text-sm font-semibold transition-all duration-200",
-                    isCompleted &&
-                      "border-emerald-600 bg-emerald-600 text-white",
+                    "relative z-10 flex h-10 w-10 items-center justify-center rounded-full border-2 text-sm font-semibold transition-all duration-200",
+                    isCompleted && "border-brand bg-brand text-brand-foreground",
                     isActive &&
-                      "border-emerald-600 bg-white text-emerald-700 shadow-lg shadow-emerald-200/60 dark:bg-emerald-950 dark:shadow-emerald-900/50",
+                      "border-brand bg-card text-brand shadow-glow",
                     !isCompleted &&
                       !isActive &&
-                      "border-border bg-card text-muted-foreground group-hover:border-emerald-400 group-hover:text-emerald-600",
+                      "border-border bg-card text-muted-foreground group-hover:border-brand/50 group-hover:text-brand",
                   )}
                 >
                   {isCompleted ? (
@@ -78,16 +77,16 @@ export function WizardStepper() {
 
                   {/* Pulse ring on active step */}
                   {isActive && (
-                    <span className="absolute inset-0 animate-ping rounded-full bg-emerald-400/25" />
+                    <span className="absolute inset-0 animate-ping rounded-full bg-brand/20" />
                   )}
                 </span>
 
                 {/* Label */}
                 <span
                   className={cn(
-                    "text-xs font-medium transition-colors",
-                    isActive && "text-emerald-700 dark:text-emerald-400",
-                    isCompleted && "text-emerald-600 dark:text-emerald-500",
+                    "font-heading text-xs font-medium transition-colors",
+                    isActive && "text-brand",
+                    isCompleted && "text-brand/80",
                     !isCompleted && !isActive && "text-muted-foreground",
                   )}
                 >

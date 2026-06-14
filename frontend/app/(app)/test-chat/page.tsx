@@ -118,9 +118,9 @@ export default function TestChatPage() {
   };
 
   return (
-    <Card className="flex h-[calc(100vh-11rem)] flex-col">
+    <Card className="flex h-[calc(100vh-11rem)] flex-col shadow-soft ring-hairline">
       <CardHeader className="border-b">
-        <CardTitle>{t("Test chat", "צ׳אט בדיקה")}</CardTitle>
+        <CardTitle className="font-heading">{t("Test chat", "צ׳אט בדיקה")}</CardTitle>
         <CardAction>
           <Button
             type="button"
@@ -153,7 +153,7 @@ export default function TestChatPage() {
                 style={messageTextStyle(messageDir)}
                 className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed shadow-sm ${
                   message.role === "user"
-                    ? "bg-emerald-600 text-white"
+                    ? "bg-brand text-brand-foreground"
                     : "border border-border/60 bg-muted/80 text-foreground"
                 }`}
               >
@@ -165,7 +165,7 @@ export default function TestChatPage() {
               {message.role === "assistant" && message.cards?.length ? (
                 <div className="w-full max-w-xl space-y-2.5">
                   <div className="flex items-center gap-1.5 px-1 text-xs font-medium text-muted-foreground">
-                    <Sparkles className="size-3.5 text-emerald-600 dark:text-emerald-400" />
+                    <Sparkles className="size-3.5 text-brand" />
                     <span>
                       {locale === "he"
                         ? message.cards.length === 1

@@ -62,50 +62,70 @@ export function AuthForm({ mode }: AuthFormProps) {
   };
 
   return (
-    <div className="flex min-h-screen flex-col">
-      {/* ── Top green band ── */}
-      <div className="relative overflow-hidden bg-gradient-to-br from-emerald-500 via-emerald-600 to-teal-700 px-6 py-10 text-center">
+    <div className="grid min-h-screen lg:grid-cols-[1.05fr_1fr]">
+      {/* ── Brand panel (left on desktop) ── */}
+      <div className="relative hidden overflow-hidden bg-gradient-to-br from-[var(--brand)] to-[color-mix(in_oklch,var(--brand),var(--brand-accent)_60%)] p-12 lg:flex lg:flex-col lg:justify-between">
         {/* Decorative glows */}
-        <div className="absolute -top-20 left-1/2 h-64 w-64 -translate-x-1/2 rounded-full bg-white/10 blur-3xl" />
-        <div className="absolute -bottom-10 -right-10 h-48 w-48 rounded-full bg-teal-400/20 blur-2xl" />
+        <div className="absolute -left-16 -top-16 h-72 w-72 rounded-full bg-white/15 blur-3xl" />
+        <div className="absolute bottom-0 right-0 h-80 w-80 rounded-full bg-black/10 blur-3xl" />
 
-        <div className="relative z-10">
-          <Link href="/" className="text-3xl font-extrabold tracking-tight text-white">
-            WhatsBase
-          </Link>
-          <p className="mt-2 text-emerald-100">
-            {isLogin ? "Good to have you back." : "Your AI sales agent on WhatsApp."}
+        <Link
+          href="/"
+          className="relative font-heading text-2xl font-bold tracking-tight text-white"
+        >
+          WhatsBase
+        </Link>
+
+        <div className="relative max-w-md">
+          <h2 className="font-heading text-4xl font-bold leading-tight tracking-tight text-white">
+            {isLogin
+              ? "Welcome back to your sales agent."
+              : "Build a WhatsApp sales agent in minutes."}
+          </h2>
+          <p className="mt-4 text-white/80">
+            Upload your catalog once. The AI answers customers instantly — with
+            the right prices, photos, and tone, in Hebrew and English.
           </p>
 
-          {/* Feature pills — visible on md+ */}
-          <div className="mt-5 hidden justify-center gap-3 md:flex">
+          <div className="mt-8 space-y-3">
             {features.map((f) => (
-              <span
-                key={f}
-                className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1 text-xs font-medium text-white backdrop-blur-sm"
-              >
-                <Check className="size-3 stroke-[3]" />
-                {f}
-              </span>
+              <div key={f} className="flex items-center gap-3 text-white">
+                <span className="flex size-6 items-center justify-center rounded-full bg-white/20">
+                  <Check className="size-3.5 stroke-[3]" />
+                </span>
+                <span className="text-sm font-medium">{f}</span>
+              </div>
             ))}
           </div>
         </div>
+
+        <p className="relative text-sm text-white/60">
+          Built for builders · Hebrew &amp; English support
+        </p>
       </div>
 
-      {/* ── Form — centered in remaining space ── */}
+      {/* ── Form panel (right) ── */}
       <div className="flex flex-1 items-center justify-center px-4 py-10">
         <div className="w-full max-w-md">
-          <Card className="shadow-2xl shadow-emerald-900/10 dark:shadow-emerald-900/30">
+          {/* Mobile logo */}
+          <Link
+            href="/"
+            className="mb-8 block text-center font-heading text-2xl font-bold tracking-tight lg:hidden"
+          >
+            Whats<span className="text-brand">Base</span>
+          </Link>
+
+          <Card className="shadow-elevated ring-hairline">
             <CardContent className="p-8">
               {/* Heading */}
               <div className="mb-6">
-                <h1 className="text-2xl font-extrabold tracking-tight text-foreground">
+                <h1 className="font-heading text-2xl font-bold tracking-tight text-foreground">
                   {isLogin ? "Sign in" : "Create account"}
                 </h1>
                 <p className="mt-1 text-sm text-muted-foreground">
                   {isLogin
                     ? "Enter your credentials to continue."
-                    : "No credit card required."}
+                    : "No credit card required — get started free."}
                 </p>
               </div>
 
@@ -144,7 +164,7 @@ export function AuthForm({ mode }: AuthFormProps) {
                     <button
                       type="button"
                       onClick={() => setShowPassword((prev) => !prev)}
-                      className="absolute end-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      className="absolute end-3 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors hover:text-foreground"
                       aria-label={showPassword ? "Hide password" : "Show password"}
                     >
                       {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
@@ -153,13 +173,13 @@ export function AuthForm({ mode }: AuthFormProps) {
                 </div>
 
                 {error ? (
-                  <p className="rounded-lg bg-red-50 px-4 py-2.5 text-sm text-red-600 dark:bg-red-950/40 dark:text-red-400">
+                  <p className="rounded-lg bg-destructive/10 px-4 py-2.5 text-sm text-destructive">
                     {error}
                   </p>
                 ) : null}
 
                 {success ? (
-                  <p className="rounded-lg bg-emerald-50 px-4 py-2.5 text-sm text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400">
+                  <p className="rounded-lg bg-brand/10 px-4 py-2.5 text-sm text-brand">
                     {success}
                   </p>
                 ) : null}
@@ -168,16 +188,16 @@ export function AuthForm({ mode }: AuthFormProps) {
                   type="submit"
                   size="lg"
                   disabled={loading}
-                  className="w-full bg-emerald-600 hover:bg-emerald-700"
+                  className="w-full shadow-soft"
                 >
                   {loading ? "Please wait…" : isLogin ? "Sign in" : "Create account"}
                 </Button>
               </form>
 
-              <p className="mt-5 text-center text-sm text-muted-foreground">
+              <p className="mt-6 text-center text-sm text-muted-foreground">
                 {isLogin ? "Don't have an account?" : "Already have an account?"}{" "}
                 <Link
-                  className="font-semibold text-emerald-700 hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300"
+                  className="font-semibold text-brand underline-offset-4 hover:underline"
                   href={isLogin ? "/signup" : "/login"}
                 >
                   {isLogin ? "Sign up free" : "Sign in"}
@@ -187,7 +207,6 @@ export function AuthForm({ mode }: AuthFormProps) {
           </Card>
         </div>
       </div>
-
     </div>
   );
 }
