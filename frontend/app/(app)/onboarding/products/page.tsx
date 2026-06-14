@@ -499,80 +499,96 @@ export default function ProductsOnboardingPage() {
             </div>
           </div>
 
-          <div className="space-y-3">
-            {rows.map((row) => (
-              <div key={row.id} className="grid gap-3 rounded-lg border p-4">
-                <div className="grid gap-3 md:grid-cols-2">
-                  <Input
-                    value={row.nameEn}
-                    onChange={(event) => updateProduct(row.id, "nameEn", event.target.value)}
-                    placeholder="Name (EN)"
-                  />
-                  <Input
-                    value={row.nameHe}
-                    onChange={(event) => updateProduct(row.id, "nameHe", event.target.value)}
-                    placeholder="שם (HE)"
-                  />
-                  <Input
-                    value={row.category}
-                    onChange={(event) => updateProduct(row.id, "category", event.target.value)}
-                    placeholder="Category"
-                  />
-                  <Input
-                    type="number"
-                    value={row.price}
-                    onChange={(event) => updateProduct(row.id, "price", event.target.value)}
-                    placeholder="Price"
-                  />
-                </div>
-                <div className="flex flex-col gap-2">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Label
-                      className={`cursor-pointer rounded-md border px-3 py-2 text-sm hover:bg-accent ${rowUploadingId === row.id ? "pointer-events-none opacity-60" : ""}`}
-                    >
-                      <Upload className="me-1 inline size-4" />
-                      {rowUploadingId === row.id
-                        ? t("Uploading...", "מעלה...")
-                        : t("Attach image", "הוספת תמונה")}
-                      <Input
-                        type="file"
-                        accept="image/*"
-                        className="hidden"
-                        disabled={rowUploadingId === row.id || bulkUploading}
-                        onChange={(event) => {
-                          void onImageUpload(row.id, event.target.files?.[0] ?? null);
-                          event.target.value = "";
-                        }}
-                      />
-                    </Label>
-                    <span className="text-sm text-muted-foreground">
-                      {row.image?.fileName ?? t("No image selected", "לא נבחרה תמונה")}
-                    </span>
-                    <Button type="button" variant="ghost" size="sm" onClick={() => removeProduct(row.id)}>
-                      <Trash2 className="size-4" />
-                    </Button>
-                  </div>
-                  {rowUploadingId === row.id ? (
-                    <UploadProgressBar
-                      label={t("Uploading image...", "מעלה תמונה...")}
-                      value={0}
-                      indeterminate
-                    />
-                  ) : null}
+          {rows.length > 0 ? (
+            <div className="rounded-lg border">
+              <div className="sticky top-0 z-10 border-b bg-card px-4 py-3">
+                <p className="text-sm font-medium">
+                  {t("Product catalog", "קטלוג מוצרים")} ({rows.length})
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {t(
+                    "Scroll inside this panel to edit names and prices.",
+                    "גללו בתוך הפאנל כדי לערוך שמות ומחירים.",
+                  )}
+                </p>
+              </div>
+              <div className="max-h-[min(60vh,32rem)] overflow-y-auto overscroll-contain">
+                <div className="space-y-3 p-3">
+                  {rows.map((row) => (
+                    <div key={row.id} className="grid gap-3 rounded-lg border bg-background p-4">
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <Input
+                          value={row.nameEn}
+                          onChange={(event) => updateProduct(row.id, "nameEn", event.target.value)}
+                          placeholder="Name (EN)"
+                        />
+                        <Input
+                          value={row.nameHe}
+                          onChange={(event) => updateProduct(row.id, "nameHe", event.target.value)}
+                          placeholder="שם (HE)"
+                        />
+                        <Input
+                          value={row.category}
+                          onChange={(event) => updateProduct(row.id, "category", event.target.value)}
+                          placeholder="Category"
+                        />
+                        <Input
+                          type="number"
+                          value={row.price}
+                          onChange={(event) => updateProduct(row.id, "price", event.target.value)}
+                          placeholder="Price"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Label
+                            className={`cursor-pointer rounded-md border px-3 py-2 text-sm hover:bg-accent ${rowUploadingId === row.id ? "pointer-events-none opacity-60" : ""}`}
+                          >
+                            <Upload className="me-1 inline size-4" />
+                            {rowUploadingId === row.id
+                              ? t("Uploading...", "מעלה...")
+                              : t("Attach image", "הוספת תמונה")}
+                            <Input
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              disabled={rowUploadingId === row.id || bulkUploading}
+                              onChange={(event) => {
+                                void onImageUpload(row.id, event.target.files?.[0] ?? null);
+                                event.target.value = "";
+                              }}
+                            />
+                          </Label>
+                          <span className="text-sm text-muted-foreground">
+                            {row.image?.fileName ?? t("No image selected", "לא נבחרה תמונה")}
+                          </span>
+                          <Button type="button" variant="ghost" size="sm" onClick={() => removeProduct(row.id)}>
+                            <Trash2 className="size-4" />
+                          </Button>
+                        </div>
+                        {rowUploadingId === row.id ? (
+                          <UploadProgressBar
+                            label={t("Uploading image...", "מעלה תמונה...")}
+                            value={0}
+                            indeterminate
+                          />
+                        ) : null}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
-            ))}
-            {!rows.length ? (
-              <p className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
-                {photoLibrary.length
-                  ? t(
-                      "Photos are uploaded. Save and continue — the builder will caption them in the next step. Import a CSV anytime to add names and prices first.",
-                      "התמונות הועלו. אפשר לשמור ולהמשיך — הבילדר יתאר אותן בשלב הבא. אפשר לייבא CSV בכל עת כדי להוסיף שמות ומחירים קודם.",
-                    )
-                  : t("Import a CSV or upload photos to start adding products.", "ייבאו CSV או העלו תמונות כדי להתחיל להוסיף מוצרים.")}
-              </p>
-            ) : null}
-          </div>
+            </div>
+          ) : (
+            <p className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
+              {photoLibrary.length
+                ? t(
+                    "Photos are uploaded. Save and continue — the builder will caption them in the next step. Import a CSV anytime to add names and prices first.",
+                    "התמונות הועלו. אפשר לשמור ולהמשיך — הבילדר יתאר אותן בשלב הבא. אפשר לייבא CSV בכל עת כדי להוסיף שמות ומחירים קודם.",
+                  )
+                : t("Import a CSV or upload photos to start adding products.", "ייבאו CSV או העלו תמונות כדי להתחיל להוסיף מוצרים.")}
+            </p>
+          )}
 
           <div className="space-y-2 rounded-lg border p-4">
             <p className="text-sm font-medium">
