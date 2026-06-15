@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, Plus, X } from "lucide-react";
+import { Check, Loader2, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -10,6 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { api } from "@/lib/api";
 import { useLocale } from "@/lib/locale";
+import { cn } from "@/lib/utils";
 import type { Lead, LeadCreatePayload, LeadStatus, ProductDraft } from "@/lib/types";
 
 const LEAD_STATUSES: LeadStatus[] = [
@@ -121,13 +122,20 @@ export default function LeadsPage() {
     }
   };
 
-  const updateDidBuy = async (lead: Lead, didBuy: boolean) => {
-    try {
-      const updated = await api.updateLead(lead.id, { didBuy });
-      setLeads((prev) => prev.map((row) => (row.id === lead.id ? updated : row)));
-    } catch (err) {
+  const updateDidBuy = (leadId: string, didBuy: boolean) => {
+    const previous = leads.find((row) => row.id === leadId);
+    if (!previous || previous.didBuy === didBuy) return;
+
+    setLeads((prev) =>
+      prev.map((row) => (row.id === leadId ? { ...row, didBuy } : row)),
+    );
+
+    void api.updateLead(leadId, { didBuy }).catch((err) => {
+      setLeads((prev) =>
+        prev.map((row) => (row.id === leadId ? previous : row)),
+      );
       setError(err instanceof Error ? err.message : String(err));
-    }
+    });
   };
 
   const removeLead = async (leadId: string) => {
@@ -312,6 +320,7 @@ export default function LeadsPage() {
                 <TableHead>{t("Interested in", "מתעניין ב")}</TableHead>
                 <TableHead>{t("Bought?", "נסגר?")}</TableHead>
                 <TableHead>{t("Last message", "הודעה אחרונה")}</TableHead>
+                <TableHead>{t("Re-engagement", "מעורבות מחדש")}</TableHead>
                 <TableHead>{t("Last summary", "סיכום שיחה")}</TableHead>
                 <TableHead>{t("Actions", "פעולות")}</TableHead>
               </TableRow>
@@ -319,13 +328,13 @@ export default function LeadsPage() {
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center text-muted-foreground">
+                  <TableCell colSpan={9} className="text-center text-muted-foreground">
                     <Loader2 className="mx-auto size-4 animate-spin" />
                   </TableCell>
                 </TableRow>
               ) : leads.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center text-muted-foreground">
+                  <TableCell colSpan={9} className="text-center text-muted-foreground">
                     {t("No leads yet.", "אין לידים עדיין.")}
                   </TableCell>
                 </TableRow>
@@ -363,16 +372,42 @@ export default function LeadsPage() {
                       )}
                     </TableCell>
                     <TableCell>
-                      <input
-                        type="checkbox"
-                        checked={lead.didBuy}
-                        onChange={(event) => void updateDidBuy(lead, event.target.checked)}
-                      />
+                      <button
+                        type="button"
+                        onClick={() => updateDidBuy(lead.id, !lead.didBuy)}
+                        className={cn(
+                          "inline-flex h-8 min-w-[5.5rem] items-center justify-center gap-1.5 rounded-full px-3 text-xs font-medium transition-colors",
+                          lead.didBuy
+                            ? "bg-emerald-500/15 text-emerald-700 ring-1 ring-emerald-500/30 hover:bg-emerald-500/20"
+                            : "bg-muted/60 text-muted-foreground ring-1 ring-border hover:bg-muted",
+                        )}
+                        aria-pressed={lead.didBuy}
+                        aria-label={
+                          lead.didBuy
+                            ? t("Marked as sold", "סומן כנסגר")
+                            : t("Mark as sold", "סמן כנסגר")
+                        }
+                      >
+                        {lead.didBuy ? <Check className="size-3.5 shrink-0" /> : null}
+                        {lead.didBuy ? t("Sold", "נסגר") : t("Not yet", "טרם")}
+                      </button>
                     </TableCell>
                     <TableCell>
                       {lead.lastMessageSentAt
                         ? new Date(lead.lastMessageSentAt).toLocaleString()
                         : "—"}
+                    </TableCell>
+                    <TableCell className="max-w-44 whitespace-normal text-xs text-muted-foreground">
+                      <div>{lead.lastReengagementDecision ?? "—"}</div>
+                      <div>
+                        {t("Attempts", "ניסיונות")}: {lead.reengagementAttemptCount ?? 0}
+                      </div>
+                      <div>
+                        {t("Cooldown", "השהיה")}:{" "}
+                        {lead.reengagementCooldownUntil
+                          ? new Date(lead.reengagementCooldownUntil).toLocaleDateString()
+                          : "—"}
+                      </div>
                     </TableCell>
                     <TableCell className="max-w-80 whitespace-normal text-xs text-muted-foreground">
                       {lead.lastConversationSummary || "—"}

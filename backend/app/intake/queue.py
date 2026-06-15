@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 
+from arq import cron
 from arq.connections import ArqRedis, RedisSettings, create_pool
 
 from app.core.config import get_settings
@@ -34,9 +35,21 @@ class WorkerSettings:
         _tasks.process_incoming_message,
         _tasks.run_agent_turn,
         _tasks.summarize_lead_after_idle,
+        _tasks.scan_reengagement_candidates,
+        _tasks.evaluate_reengagement_candidate,
         _tasks.send_outgoing,
         _tasks.run_build,
         _tasks.run_incremental_build,
+    ]
+    cron_jobs = [
+        cron(
+            _tasks.scan_reengagement_candidates,
+            hour=max(0, min(23, get_settings().reengagement_cron_hour_utc)),
+            minute=0,
+            second=0,
+            microsecond=0,
+            unique=True,
+        )
     ]
     redis_settings = _redis_settings()
     job_timeout = get_settings().build_job_timeout_seconds

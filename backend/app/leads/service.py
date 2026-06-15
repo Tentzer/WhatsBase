@@ -1,21 +1,24 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from datetime import datetime
-from typing import Iterable, Sequence
+from typing import Iterable, Literal, Sequence
 
+from pydantic import BaseModel, Field
 from sqlalchemy import Select, delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.api.schemas import LeadResponse, LeadStatus
+from app.api.schemas import LeadAutomationEventResponse, LeadResponse, LeadStatus
 from app.core.models import get_model
 from app.core.observability import observe
-from app.core.schema import Lead, LeadProduct, Message, Product
+from app.core.schema import Lead, LeadAutomationEvent, LeadProduct, Message, Product
 
 logger = logging.getLogger(__name__)
 _SUMMARY_WINDOW = 20
+_JUDGE_WINDOW = 20
 
 
 def normalize_phone(raw: str) -> str:
@@ -59,6 +62,65 @@ def _get_anthropic_client():
     from app.core.config import get_settings
 
     return Anthropic(api_key=get_settings().anthropic_api_key)
+
+
+class LeadReengagementJudgeResult(BaseModel):
+    decision: Literal["message_again", "do_not_message", "uncertain"] = "do_not_message"
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    reason_code: Literal[
+        "hard_opt_out",
+        "temporary_constraint",
+        "price_timing",
+        "no_response",
+        "ambiguous",
+        "other",
+    ] = "ambiguous"
+    recommended_message: str = ""
+
+
+def _extract_json_block(raw: str) -> dict | None:
+    text = (raw or "").strip()
+    if not text:
+        return None
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    if "```json" in text:
+        candidate = text.split("```json", 1)[1].split("```", 1)[0].strip()
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            return None
+    first = text.find("{")
+    last = text.rfind("}")
+    if first == -1 or last == -1 or last <= first:
+        return None
+    try:
+        return json.loads(text[first : last + 1])
+    except json.JSONDecodeError:
+        return None
+
+
+def _contains_hard_opt_out(*texts: str) -> bool:
+    merged = " ".join((text or "").lower() for text in texts)
+    hard_markers = (
+        "do not contact",
+        "don't contact",
+        "stop messaging",
+        "stop contacting",
+        "remove me",
+        "unsubscribe",
+        "never contact",
+        "never message",
+        "אל תפנה",
+        "אל תפנו",
+        "אל תשלח",
+        "אל תשלחו",
+        "תפסיקו",
+        "להסיר אותי",
+    )
+    return any(marker in merged for marker in hard_markers)
 
 
 @observe(name="leads.summarize")
@@ -133,6 +195,81 @@ async def generate_lead_summary(
     )
 
 
+@observe(name="leads.reengagement_judge")
+async def judge_reengagement_candidate(
+    *,
+    lead_summary: str | None,
+    messages: Sequence[Message],
+    status: LeadStatus,
+    attempts: int,
+    days_since_last_contact: int,
+) -> LeadReengagementJudgeResult:
+    window = list(messages)[-_JUDGE_WINDOW:]
+    transcript_lines: list[str] = []
+    for msg in window:
+        content = (msg.content or "").strip()
+        if not content:
+            continue
+        role = "customer" if msg.direction == "inbound" else "agent"
+        transcript_lines.append(f"{role}: {content}")
+    transcript = "\n".join(transcript_lines[-_JUDGE_WINDOW:])
+    summary = (lead_summary or "").strip()
+
+    if _contains_hard_opt_out(summary, transcript):
+        return LeadReengagementJudgeResult(
+            decision="do_not_message",
+            confidence=1.0,
+            reason_code="hard_opt_out",
+            recommended_message="",
+        )
+
+    system_prompt = (
+        "You are a safety-first judge for CRM re-engagement on WhatsApp.\n"
+        "Goal: decide whether this lead should be contacted again now.\n"
+        "Hard rule: if there is any explicit request not to be contacted again,\n"
+        "or legal/privacy opt-out intent, return do_not_message.\n"
+        "If uncertain, return do_not_message.\n"
+        "Return JSON only with keys: decision, confidence, reason_code, recommended_message.\n"
+        "Allowed decision: message_again | do_not_message | uncertain.\n"
+        "Allowed reason_code: hard_opt_out | temporary_constraint | price_timing | "
+        "no_response | ambiguous | other.\n"
+        "recommended_message must be short, polite, and non-pushy.\n"
+        "Do not invent specific prices, inventory, discounts, or delivery commitments."
+    )
+    user_prompt = (
+        f"lead_status: {status}\n"
+        f"attempt_count: {attempts}\n"
+        f"days_since_last_contact: {days_since_last_contact}\n\n"
+        f"conversation_summary:\n{summary or 'none'}\n\n"
+        f"recent_transcript:\n{transcript or 'none'}"
+    )
+    model_cfg = get_model("setup_assistant")
+
+    def _call():
+        client = _get_anthropic_client()
+        return client.messages.create(
+            model=model_cfg.name,
+            max_tokens=350,
+            temperature=0.0,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_prompt}],
+        )
+
+    try:
+        resp = await asyncio.to_thread(_call)
+        payload = _extract_json_block(_extract_text(resp))
+        if payload:
+            return LeadReengagementJudgeResult.model_validate(payload)
+    except Exception:  # noqa: BLE001
+        logger.exception("judge_reengagement_candidate failed")
+    return LeadReengagementJudgeResult(
+        decision="do_not_message",
+        confidence=0.0,
+        reason_code="ambiguous",
+        recommended_message="",
+    )
+
+
 def lead_to_response(lead: Lead) -> LeadResponse:
     return LeadResponse(
         id=lead.id,
@@ -146,9 +283,30 @@ def lead_to_response(lead: Lead) -> LeadResponse:
         next_follow_up_at=lead.next_follow_up_at,
         last_message_sent_at=lead.last_message_sent_at,
         last_conversation_summary=lead.last_conversation_summary,
+        last_reengagement_at=lead.last_reengagement_at,
+        last_reengagement_decision=lead.last_reengagement_decision,
+        reengagement_attempt_count=lead.reengagement_attempt_count,
+        reengagement_cooldown_until=lead.reengagement_cooldown_until,
         product_ids=[lp.product_id for lp in lead.interested_products],
         created_at=lead.created_at,
         updated_at=lead.updated_at,
+    )
+
+
+def lead_automation_event_to_response(
+    event: LeadAutomationEvent,
+) -> LeadAutomationEventResponse:
+    return LeadAutomationEventResponse(
+        id=event.id,
+        lead_id=event.lead_id,
+        automation_type=event.automation_type,
+        decision=event.decision,
+        reason=event.reason,
+        scheduled_for=event.scheduled_for,
+        sent_at=event.sent_at,
+        idempotency_key=event.idempotency_key,
+        payload_json=event.payload_json or {},
+        created_at=event.created_at,
     )
 
 

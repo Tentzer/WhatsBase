@@ -18,11 +18,12 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from arq.connections import ArqRedis
-from sqlalchemy import select, update
+from sqlalchemy import func, or_, select, update
+from sqlalchemy.exc import IntegrityError
 
 from app.adapters.whatsapp import get_adapter
 from app.core.config import get_settings
@@ -32,14 +33,17 @@ from app.core.schema import (
     BuildRun,
     BusinessInfo,
     Lead,
+    LeadAutomationEvent,
     LeadProduct,
     Message,
     Product,
+    Conversation,
     Tenant,
     WhatsAppInstance,
 )
 from app.leads.service import (
     generate_lead_summary,
+    judge_reengagement_candidate,
     normalize_phone,
     replace_lead_products,
     validate_tenant_products,
@@ -55,6 +59,7 @@ _DEBOUNCE_SECONDS = 2.5  # wait this long, merging a burst from the same chat
 _BURST_TTL = 60  # safety expiry on the burst buffer (seconds)
 _SUMMARY_DEFER_SECONDS = 300  # summarize after 5m of chat inactivity
 _SUMMARY_TOKEN_TTL = 3_600
+_REENGAGEMENT_IDEMPOTENCY_TTL = 172_800
 
 
 def _normalize_wa_digits(raw: str) -> str:
@@ -119,6 +124,10 @@ def _token_key(instance_id: str, chat_id: str) -> str:
 
 def _summary_token_key(instance_id: str, chat_id: str) -> str:
     return f"lead-summary:{instance_id}:{chat_id}"
+
+
+def _reengagement_key(tenant_id: str, lead_id: str, day_key: str) -> str:
+    return f"reengage:{tenant_id}:{lead_id}:{day_key}"
 
 
 async def _upsert_lead_after_turn(
@@ -475,6 +484,255 @@ async def send_outgoing(ctx: dict, payload: dict) -> None:
         "sent      chat=%s text=%r",
         payload["chat_id"],
         payload.get("text") or "[image]",
+    )
+
+
+async def scan_reengagement_candidates(ctx: dict) -> None:
+    """Daily scanner: enqueue tenant-scoped lead evaluation jobs."""
+    settings = get_settings()
+    if not settings.reengagement_enabled:
+        return
+
+    redis: ArqRedis = ctx["redis"]
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(days=max(1, settings.reengagement_stale_days))
+    day_key = now.date().isoformat()
+    max_daily = max(1, settings.reengagement_max_daily_per_tenant)
+    max_attempts = max(1, settings.reengagement_max_attempts_per_lead)
+
+    async with SessionLocal() as session:
+        last_activity_expr = func.coalesce(
+            Lead.last_message_sent_at,
+            Conversation.last_message_at,
+            Lead.updated_at,
+        )
+        rows = (
+            await session.execute(
+                select(Lead.id, Lead.tenant_id)
+                .outerjoin(Conversation, Conversation.id == Lead.conversation_id)
+                .where(
+                    Lead.status == "not_interested",
+                    Lead.phone_number.is_not(None),
+                    Lead.phone_number != "",
+                    Lead.reengagement_attempt_count < max_attempts,
+                    or_(
+                        Lead.reengagement_cooldown_until.is_(None),
+                        Lead.reengagement_cooldown_until <= now,
+                    ),
+                    last_activity_expr <= cutoff,
+                )
+                .order_by(Lead.tenant_id.asc(), last_activity_expr.asc())
+            )
+        ).all()
+
+    per_tenant_counts: dict[str, int] = {}
+    total = 0
+    for lead_id, tenant_id in rows:
+        count = per_tenant_counts.get(tenant_id, 0)
+        if count >= max_daily:
+            continue
+        per_tenant_counts[tenant_id] = count + 1
+        total += 1
+        await redis.enqueue_job(
+            "evaluate_reengagement_candidate",
+            tenant_id,
+            lead_id,
+            day_key,
+        )
+    logger.info(
+        "scan_reengagement_candidates queued=%d tenants=%d cutoff_days=%d",
+        total,
+        len(per_tenant_counts),
+        settings.reengagement_stale_days,
+    )
+
+
+async def evaluate_reengagement_candidate(
+    ctx: dict,
+    tenant_id: str,
+    lead_id: str,
+    day_key: str | None = None,
+) -> None:
+    """Evaluate one stale lead and queue a safe follow-up when allowed."""
+    settings = get_settings()
+    if not settings.reengagement_enabled:
+        return
+
+    redis: ArqRedis = ctx["redis"]
+    now = datetime.now(timezone.utc)
+    schedule_day = day_key or now.date().isoformat()
+    idempotency_key = _reengagement_key(tenant_id, lead_id, schedule_day)
+    was_set = await redis.set(
+        idempotency_key,
+        "1",
+        nx=True,
+        ex=_REENGAGEMENT_IDEMPOTENCY_TTL,
+    )
+    if not was_set:
+        return
+
+    async with SessionLocal() as session:
+        lead = (
+            await session.execute(
+                select(Lead).where(Lead.id == lead_id, Lead.tenant_id == tenant_id)
+            )
+        ).scalar_one_or_none()
+        if lead is None:
+            return
+        if lead.status != "not_interested":
+            return
+        if lead.reengagement_attempt_count >= max(1, settings.reengagement_max_attempts_per_lead):
+            return
+        if (
+            lead.reengagement_cooldown_until is not None
+            and lead.reengagement_cooldown_until > now
+        ):
+            return
+
+        active_agent = (
+            await session.execute(
+                select(Agent).where(Agent.tenant_id == tenant_id, Agent.status == "live")
+            )
+        ).scalar_one_or_none()
+        if active_agent is None:
+            return
+        instance = (
+            await session.execute(
+                select(WhatsAppInstance)
+                .where(WhatsAppInstance.tenant_id == tenant_id)
+                .order_by(WhatsAppInstance.updated_at.desc())
+            )
+        ).scalars().first()
+        if instance is None:
+            return
+
+        conversation = None
+        if lead.conversation_id:
+            conversation = await session.get(Conversation, lead.conversation_id)
+        last_activity = lead.last_message_sent_at
+        if conversation and conversation.last_message_at:
+            if last_activity is None or conversation.last_message_at > last_activity:
+                last_activity = conversation.last_message_at
+        if last_activity is None:
+            last_activity = lead.updated_at
+        stale_days = max(1, settings.reengagement_stale_days)
+        if last_activity > (now - timedelta(days=stale_days)):
+            return
+
+        recent_messages = (
+            await memory.recent_messages(session, lead.conversation_id, limit=20)
+            if lead.conversation_id
+            else []
+        )
+        judge_result = await judge_reengagement_candidate(
+            lead_summary=lead.last_conversation_summary,
+            messages=recent_messages,
+            status=lead.status,  # type: ignore[arg-type]
+            attempts=lead.reengagement_attempt_count,
+            days_since_last_contact=max(0, (now - last_activity).days),
+        )
+
+        effective_decision = judge_result.decision
+        reason_code = judge_result.reason_code
+        if judge_result.confidence < settings.reengagement_min_confidence:
+            effective_decision = "do_not_message"
+            reason_code = "ambiguous"
+        if effective_decision == "uncertain":
+            effective_decision = "do_not_message"
+
+        event = LeadAutomationEvent(
+            tenant_id=tenant_id,
+            lead_id=lead.id,
+            automation_type="reengagement",
+            decision=effective_decision,
+            reason=reason_code,
+            scheduled_for=now,
+            idempotency_key=idempotency_key,
+            payload_json={
+                "judge_decision": judge_result.decision,
+                "judge_confidence": judge_result.confidence,
+                "judge_reason_code": judge_result.reason_code,
+                "message_preview": judge_result.recommended_message,
+                "days_since_last_contact": max(0, (now - last_activity).days),
+            },
+        )
+        session.add(event)
+        lead.last_reengagement_decision = effective_decision
+
+        try:
+            await session.flush()
+        except IntegrityError:
+            await session.rollback()
+            return
+
+        if effective_decision != "message_again" or settings.reengagement_dry_run:
+            await session.commit()
+            return
+
+        normalized_phone = normalize_phone(lead.phone_number)
+        if not normalized_phone:
+            event.decision = "do_not_message"
+            event.reason = "ambiguous"
+            await session.commit()
+            return
+        chat_id = f"{normalized_phone}@c.us"
+        allowlist = _parse_allowlist(settings.allowed_test_numbers)
+        if allowlist and not _is_allowed(chat_id, allowlist):
+            event.decision = "do_not_message"
+            event.reason = "ambiguous"
+            await session.commit()
+            return
+
+        message_text = judge_result.recommended_message.strip()
+        if not message_text:
+            message_text = (
+                "Hi! Just checking in after our last chat. "
+                "If timing works better now, I can help with options."
+            )
+
+        if conversation is None:
+            conversation = await memory.get_or_create_conversation(
+                session, tenant_id, normalized_phone
+            )
+            lead.conversation_id = conversation.id
+
+        session.add(
+            Message(
+                conversation_id=conversation.id,
+                direction="outbound",
+                type="text",
+                content=message_text,
+            )
+        )
+        conversation.last_message_at = now
+        lead.last_message_sent_at = now
+        lead.last_reengagement_at = now
+        lead.reengagement_attempt_count += 1
+        lead.reengagement_cooldown_until = now + timedelta(
+            days=max(1, settings.reengagement_cooldown_days)
+        )
+        event.sent_at = now
+        event.payload_json = {
+            **(event.payload_json or {}),
+            "queued_chat_id": chat_id,
+            "queued_message": message_text,
+            "instance_id": instance.green_api_instance_id,
+        }
+        await session.commit()
+
+    await redis.enqueue_job(
+        "send_outgoing",
+        {
+            "green_api_instance_id": instance.green_api_instance_id,
+            "chat_id": chat_id,
+            "type": "text",
+            "text": message_text,
+        },
+    )
+    logger.info(
+        "reengagement queued tenant=%s lead=%s",
+        tenant_id,
+        lead_id,
     )
 
 

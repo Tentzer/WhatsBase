@@ -17,6 +17,7 @@ EXPECTED_TABLES = {
     "products",
     "leads",
     "lead_products",
+    "lead_automation_events",
     "product_images",
     "embeddings",
     "business_info",

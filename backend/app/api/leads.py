@@ -7,10 +7,17 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AuthContext, get_auth_context, require_tenant
-from app.api.schemas import LeadPayload, LeadProductsPayload, LeadResponse, LeadUpdatePayload
+from app.api.schemas import (
+    LeadAutomationEventResponse,
+    LeadPayload,
+    LeadProductsPayload,
+    LeadResponse,
+    LeadUpdatePayload,
+)
 from app.core.db import get_session
-from app.core.schema import Lead, LeadProduct, Tenant
+from app.core.schema import Lead, LeadAutomationEvent, LeadProduct, Tenant
 from app.leads.service import (
+    lead_automation_event_to_response,
     lead_query_for_tenant,
     lead_to_response,
     normalize_phone,
@@ -174,4 +181,33 @@ async def delete_lead(
         raise HTTPException(status_code=404, detail="Lead not found")
     await session.delete(lead)
     await session.commit()
+
+
+@router.get("/leads/{lead_id}/automation-events", response_model=list[LeadAutomationEventResponse])
+async def get_lead_automation_events(
+    lead_id: str,
+    limit: int = Query(default=20, ge=1, le=100),
+    ctx: AuthContext = Depends(get_auth_context),
+    session: AsyncSession = Depends(get_session),
+) -> list[LeadAutomationEventResponse]:
+    tenant_id = require_tenant(ctx)
+    lead_exists = (
+        await session.execute(
+            select(Lead.id).where(Lead.id == lead_id, Lead.tenant_id == tenant_id)
+        )
+    ).scalar_one_or_none()
+    if lead_exists is None:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    events = (
+        await session.execute(
+            select(LeadAutomationEvent)
+            .where(
+                LeadAutomationEvent.tenant_id == tenant_id,
+                LeadAutomationEvent.lead_id == lead_id,
+            )
+            .order_by(LeadAutomationEvent.created_at.desc())
+            .limit(limit)
+        )
+    ).scalars().all()
+    return [lead_automation_event_to_response(event) for event in events]
 

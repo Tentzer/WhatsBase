@@ -127,9 +127,26 @@ class LeadResponse(BaseModel):
     next_follow_up_at: datetime | None = None
     last_message_sent_at: datetime | None = None
     last_conversation_summary: str | None = None
+    last_reengagement_at: datetime | None = None
+    last_reengagement_decision: str | None = None
+    reengagement_attempt_count: int = 0
+    reengagement_cooldown_until: datetime | None = None
     product_ids: list[str] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
+
+
+class LeadAutomationEventResponse(BaseModel):
+    id: str
+    lead_id: str
+    automation_type: str
+    decision: str
+    reason: str | None = None
+    scheduled_for: datetime | None = None
+    sent_at: datetime | None = None
+    idempotency_key: str
+    payload_json: dict = Field(default_factory=dict)
+    created_at: datetime
 
 
 class WhatsAppConnectRequest(BaseModel):

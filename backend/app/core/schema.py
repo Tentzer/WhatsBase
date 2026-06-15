@@ -176,6 +176,14 @@ class Lead(TimestampMixin, Base):
     last_message_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     next_follow_up_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_conversation_summary: Mapped[str | None] = mapped_column(Text)
+    last_reengagement_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_reengagement_decision: Mapped[str | None] = mapped_column(String(32))
+    reengagement_attempt_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0
+    )
+    reengagement_cooldown_until: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
     conversation_id: Mapped[str | None] = mapped_column(
         UUID(as_uuid=False),
         ForeignKey("conversations.id", ondelete="SET NULL"),
@@ -209,6 +217,43 @@ class LeadProduct(TimestampMixin, Base):
 
     lead: Mapped[Lead] = relationship(back_populates="interested_products")
     product: Mapped[Product] = relationship()
+
+
+class LeadAutomationEvent(TimestampMixin, Base):
+    __tablename__ = "lead_automation_events"
+    __table_args__ = (
+        Index(
+            "ix_lead_automation_events_tenant_lead_created",
+            "tenant_id",
+            "lead_id",
+            "created_at",
+        ),
+        Index(
+            "uq_lead_automation_events_idempotency_key",
+            "idempotency_key",
+            unique=True,
+        ),
+    )
+
+    id: Mapped[str] = _pk()
+    tenant_id: Mapped[str] = _tenant_fk()
+    lead_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False),
+        ForeignKey("leads.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    automation_type: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="reengagement"
+    )
+    decision: Mapped[str] = mapped_column(String(32), nullable=False)
+    reason: Mapped[str | None] = mapped_column(Text)
+    scheduled_for: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    payload_json: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
 
 
 class ProductImage(TimestampMixin, Base):

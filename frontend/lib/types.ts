@@ -76,9 +76,26 @@ export interface Lead {
   nextFollowUpAt?: string;
   lastMessageSentAt?: string;
   lastConversationSummary?: string;
+  lastReengagementAt?: string;
+  lastReengagementDecision?: "message_again" | "do_not_message" | "uncertain";
+  reengagementAttemptCount?: number;
+  reengagementCooldownUntil?: string;
   productIds: string[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface LeadAutomationEvent {
+  id: string;
+  leadId: string;
+  automationType: string;
+  decision: "message_again" | "do_not_message" | "uncertain";
+  reason?: string;
+  scheduledFor?: string;
+  sentAt?: string;
+  idempotencyKey: string;
+  payloadJson: Record<string, unknown>;
+  createdAt: string;
 }
 
 export interface LeadCreatePayload {

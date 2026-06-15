@@ -5,6 +5,7 @@ import type {
   BusinessInfoBlock,
   LangfuseAnalytics,
   Lead,
+  LeadAutomationEvent,
   LeadCreatePayload,
   LeadStatus,
   MeResponse,
@@ -38,6 +39,7 @@ interface ApiClient {
   ) => Promise<Lead>;
   setLeadProducts: (id: string, productIds: string[]) => Promise<Lead>;
   deleteLead: (id: string) => Promise<void>;
+  getLeadAutomationEvents: (id: string, limit?: number) => Promise<LeadAutomationEvent[]>;
   syncProductsFromUploads: () => Promise<ProductDraft[]>;
   saveProducts: (products: ProductDraft[]) => Promise<ProductDraft[]>;
   deleteProduct: (id: string) => Promise<void>;
@@ -227,6 +229,10 @@ function mapApiLeadToLead(lead: {
   next_follow_up_at?: string | null;
   last_message_sent_at?: string | null;
   last_conversation_summary?: string | null;
+  last_reengagement_at?: string | null;
+  last_reengagement_decision?: "message_again" | "do_not_message" | "uncertain" | null;
+  reengagement_attempt_count?: number;
+  reengagement_cooldown_until?: string | null;
   product_ids: string[];
   created_at: string;
   updated_at: string;
@@ -243,6 +249,10 @@ function mapApiLeadToLead(lead: {
     nextFollowUpAt: lead.next_follow_up_at ?? undefined,
     lastMessageSentAt: lead.last_message_sent_at ?? undefined,
     lastConversationSummary: lead.last_conversation_summary ?? undefined,
+    lastReengagementAt: lead.last_reengagement_at ?? undefined,
+    lastReengagementDecision: lead.last_reengagement_decision ?? undefined,
+    reengagementAttemptCount: Number(lead.reengagement_attempt_count || 0),
+    reengagementCooldownUntil: lead.reengagement_cooldown_until ?? undefined,
     productIds: lead.product_ids ?? [],
     createdAt: lead.created_at,
     updatedAt: lead.updated_at,
@@ -454,6 +464,10 @@ const realApi: ApiClient = {
         next_follow_up_at?: string | null;
         last_message_sent_at?: string | null;
         last_conversation_summary?: string | null;
+        last_reengagement_at?: string | null;
+        last_reengagement_decision?: "message_again" | "do_not_message" | "uncertain" | null;
+        reengagement_attempt_count?: number;
+        reengagement_cooldown_until?: string | null;
         product_ids: string[];
         created_at: string;
         updated_at: string;
@@ -474,6 +488,10 @@ const realApi: ApiClient = {
       next_follow_up_at?: string | null;
       last_message_sent_at?: string | null;
       last_conversation_summary?: string | null;
+      last_reengagement_at?: string | null;
+      last_reengagement_decision?: "message_again" | "do_not_message" | "uncertain" | null;
+      reengagement_attempt_count?: number;
+      reengagement_cooldown_until?: string | null;
       product_ids: string[];
       created_at: string;
       updated_at: string;
@@ -506,6 +524,10 @@ const realApi: ApiClient = {
       next_follow_up_at?: string | null;
       last_message_sent_at?: string | null;
       last_conversation_summary?: string | null;
+      last_reengagement_at?: string | null;
+      last_reengagement_decision?: "message_again" | "do_not_message" | "uncertain" | null;
+      reengagement_attempt_count?: number;
+      reengagement_cooldown_until?: string | null;
       product_ids: string[];
       created_at: string;
       updated_at: string;
@@ -554,6 +576,36 @@ const realApi: ApiClient = {
   },
   deleteLead: async (id: string): Promise<void> => {
     await requestJson<void>(`/api/leads/${id}`, { method: "DELETE" });
+  },
+  getLeadAutomationEvents: async (id: string, limit = 20): Promise<LeadAutomationEvent[]> => {
+    const search = new URLSearchParams();
+    search.set("limit", String(limit));
+    const res = await requestJson<
+      Array<{
+        id: string;
+        lead_id: string;
+        automation_type: string;
+        decision: "message_again" | "do_not_message" | "uncertain";
+        reason?: string | null;
+        scheduled_for?: string | null;
+        sent_at?: string | null;
+        idempotency_key: string;
+        payload_json?: Record<string, unknown> | null;
+        created_at: string;
+      }>
+    >(`/api/leads/${id}/automation-events?${search.toString()}`);
+    return res.map((row) => ({
+      id: row.id,
+      leadId: row.lead_id,
+      automationType: row.automation_type,
+      decision: row.decision,
+      reason: row.reason ?? undefined,
+      scheduledFor: row.scheduled_for ?? undefined,
+      sentAt: row.sent_at ?? undefined,
+      idempotencyKey: row.idempotency_key,
+      payloadJson: row.payload_json ?? {},
+      createdAt: row.created_at,
+    }));
   },
   syncProductsFromUploads: async (): Promise<ProductDraft[]> => {
     const res = await requestJson<

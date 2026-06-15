@@ -64,6 +64,22 @@ class Settings(BaseSettings):
     # including all group chats (@g.us), to keep the bot from replying to
     # real contacts during local testing.
     allowed_test_numbers: str = ""
+    # Daily stale-lead re-engagement automation.
+    reengagement_enabled: bool = False
+    # Dry-run mode writes decisions/events but does not send WhatsApp messages.
+    reengagement_dry_run: bool = True
+    # Daily UTC hour (0-23) when candidate scanning is scheduled.
+    reengagement_cron_hour_utc: int = 6
+    # Eligible if last activity is at least this many days ago.
+    reengagement_stale_days: int = 60
+    # Per-tenant cap for daily re-engagement sends.
+    reengagement_max_daily_per_tenant: int = 25
+    # Lifetime cap per lead to avoid repeated outreach loops.
+    reengagement_max_attempts_per_lead: int = 3
+    # Cooldown after each sent re-engagement.
+    reengagement_cooldown_days: int = 30
+    # Minimum judge confidence required before any outreach.
+    reengagement_min_confidence: float = 0.65
 
     # Secret used to encrypt per-tenant Green API tokens at rest (see schema).
     # Generated/rotated out of band; blank in tests.
