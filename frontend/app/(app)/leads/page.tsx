@@ -70,22 +70,33 @@ export default function LeadsPage() {
     setLoading(true);
     setError(null);
     try {
-      const [leadRows, productRows, settings] = await Promise.all([
+      const [leadRows, productRows] = await Promise.all([
         api.getLeads({
           status: statusFilter === "all" ? undefined : statusFilter,
           q: search || undefined,
           productId: productFilter === "all" ? undefined : productFilter,
         }),
         api.getProducts(),
-        api.getLeadAutomationSettings(),
       ]);
       setLeads(leadRows);
       setProducts(productRows);
-      setAutomationSettings(settings);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Automation settings are an optional enhancement: load them separately so a
+  // failure here (e.g. backend not yet redeployed/migrated) never blocks the
+  // core leads list from rendering.
+  const loadAutomationSettings = async () => {
+    try {
+      const settings = await api.getLeadAutomationSettings();
+      setAutomationSettings(settings);
+    } catch {
+      // Keep defaults; toggles simply won't reflect/persist until the backend
+      // exposes the endpoint. Do not surface a page-level error for this.
     }
   };
 
@@ -96,6 +107,11 @@ export default function LeadsPage() {
     return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusFilter, productFilter]);
+
+  useEffect(() => {
+    void loadAutomationSettings();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const createLead = async () => {
     if (!newLead.fullName.trim() || !newLead.phoneNumber.trim()) {
