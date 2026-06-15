@@ -25,7 +25,7 @@ interface ApiClient {
   getBusinessInfo: () => Promise<BusinessInfoBlock[]>;
   saveBusinessInfo: (payload: BusinessInfoBlock[]) => Promise<BusinessInfoBlock[]>;
   getProducts: () => Promise<ProductDraft[]>;
-  getLeads: (params?: { status?: LeadStatus; q?: string }) => Promise<Lead[]>;
+  getLeads: (params?: { status?: LeadStatus; q?: string; productId?: string }) => Promise<Lead[]>;
   createLead: (payload: LeadCreatePayload) => Promise<Lead>;
   updateLead: (
     id: string,
@@ -436,6 +436,9 @@ const realApi: ApiClient = {
     }
     if (params?.q?.trim()) {
       search.set("q", params.q.trim());
+    }
+    if (params?.productId) {
+      search.set("product_id", params.productId);
     }
     const qs = search.toString();
     const res = await requestJson<

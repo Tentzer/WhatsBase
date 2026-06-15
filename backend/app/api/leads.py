@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import AuthContext, get_auth_context, require_tenant
 from app.api.schemas import LeadPayload, LeadProductsPayload, LeadResponse, LeadUpdatePayload
 from app.core.db import get_session
-from app.core.schema import Lead, Tenant
+from app.core.schema import Lead, LeadProduct, Tenant
 from app.leads.service import (
     lead_query_for_tenant,
     lead_to_response,
@@ -25,6 +25,7 @@ router = APIRouter(prefix="/api", tags=["leads"])
 async def get_leads(
     status: str | None = Query(default=None),
     q: str | None = Query(default=None),
+    product_id: str | None = Query(default=None),
     ctx: AuthContext = Depends(get_auth_context),
     session: AsyncSession = Depends(get_session),
 ) -> list[LeadResponse]:
@@ -42,6 +43,12 @@ async def get_leads(
                     Lead.notes.ilike(like),
                 )
             )
+    if product_id:
+        query = query.where(
+            Lead.id.in_(
+                select(LeadProduct.lead_id).where(LeadProduct.product_id == product_id)
+            )
+        )
     rows = (await session.execute(query)).scalars().all()
     return [lead_to_response(row) for row in rows]
 

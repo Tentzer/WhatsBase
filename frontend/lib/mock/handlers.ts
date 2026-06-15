@@ -156,7 +156,7 @@ export const mockApi = {
     return loadState().products;
   },
 
-  async getLeads(params?: { status?: LeadStatus; q?: string }): Promise<Lead[]> {
+  async getLeads(params?: { status?: LeadStatus; q?: string; productId?: string }): Promise<Lead[]> {
     let rows = [...mockLeads];
     if (params?.status) {
       rows = rows.filter((lead) => lead.status === params.status);
@@ -169,6 +169,9 @@ export const mockApi = {
           lead.phoneNumber.toLowerCase().includes(q) ||
           (lead.notes ?? "").toLowerCase().includes(q),
       );
+    }
+    if (params?.productId) {
+      rows = rows.filter((lead) => lead.productIds.includes(params.productId as string));
     }
     return rows.sort((a, b) => (a.updatedAt > b.updatedAt ? -1 : 1));
   },

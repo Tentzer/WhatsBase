@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, Plus } from "lucide-react";
+import { Loader2, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -28,7 +28,9 @@ export default function LeadsPage() {
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<LeadStatus | "all">("all");
+  const [productFilter, setProductFilter] = useState<string>("all");
   const [error, setError] = useState<string | null>(null);
+  const [newProductId, setNewProductId] = useState<string>("");
   const [newLead, setNewLead] = useState<LeadCreatePayload>({
     fullName: "",
     phoneNumber: "",
@@ -58,6 +60,7 @@ export default function LeadsPage() {
         api.getLeads({
           status: statusFilter === "all" ? undefined : statusFilter,
           q: search || undefined,
+          productId: productFilter === "all" ? undefined : productFilter,
         }),
         api.getProducts(),
       ]);
@@ -76,7 +79,7 @@ export default function LeadsPage() {
     }, 0);
     return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statusFilter]);
+  }, [statusFilter, productFilter]);
 
   const createLead = async () => {
     if (!newLead.fullName.trim() || !newLead.phoneNumber.trim()) {
@@ -101,6 +104,7 @@ export default function LeadsPage() {
         notes: "",
         productIds: [],
       });
+      setNewProductId("");
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -148,7 +152,7 @@ export default function LeadsPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid gap-3 md:grid-cols-4">
+          <div className="grid gap-3 md:grid-cols-5">
             <div className="space-y-1">
               <Label>{t("Search", "חיפוש")}</Label>
               <Input
@@ -162,12 +166,27 @@ export default function LeadsPage() {
               <select
                 value={statusFilter}
                 onChange={(event) => setStatusFilter(event.target.value as LeadStatus | "all")}
-                className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+                className="h-9 w-full rounded-md border border-input bg-background text-foreground px-3 text-sm"
               >
                 <option value="all">{t("All", "הכל")}</option>
                 {LEAD_STATUSES.map((status) => (
                   <option key={status} value={status}>
                     {status}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1">
+              <Label>{t("Interested product", "מוצר מתעניין")}</Label>
+              <select
+                value={productFilter}
+                onChange={(event) => setProductFilter(event.target.value)}
+                className="h-9 w-full rounded-md border border-input bg-background text-foreground px-3 text-sm"
+              >
+                <option value="all">{t("All products", "כל המוצרים")}</option>
+                {products.map((product) => (
+                  <option key={product.id} value={product.id}>
+                    {product.nameEn || product.nameHe || product.stableKey}
                   </option>
                 ))}
               </select>
@@ -204,7 +223,7 @@ export default function LeadsPage() {
                 onChange={(event) =>
                   setNewLead((prev) => ({ ...prev, status: event.target.value as LeadStatus }))
                 }
-                className="h-9 rounded-md border border-input bg-transparent px-3 text-sm"
+                className="h-9 rounded-md border border-input bg-background text-foreground px-3 text-sm"
               >
                 {LEAD_STATUSES.map((status) => (
                   <option key={status} value={status}>
@@ -226,23 +245,55 @@ export default function LeadsPage() {
             </div>
             <div className="mt-3 space-y-1">
               <Label>{t("Interested products", "מוצרים מעניינים")}</Label>
-              <select
-                multiple
-                value={newLead.productIds}
-                onChange={(event) => {
-                  const selected = Array.from(event.target.selectedOptions).map(
-                    (option) => option.value,
-                  );
-                  setNewLead((prev) => ({ ...prev, productIds: selected }));
-                }}
-                className="min-h-24 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm"
-              >
-                {products.map((product) => (
-                  <option key={product.id} value={product.id}>
-                    {product.nameEn || product.nameHe || product.stableKey}
-                  </option>
+              <div className="flex gap-2">
+                <select
+                  value={newProductId}
+                  onChange={(event) => setNewProductId(event.target.value)}
+                  className="h-9 flex-1 rounded-md border border-input bg-background text-foreground px-3 text-sm"
+                >
+                  <option value="">{t("Select product", "בחר מוצר")}</option>
+                  {products.map((product) => (
+                    <option key={product.id} value={product.id}>
+                      {product.nameEn || product.nameHe || product.stableKey}
+                    </option>
+                  ))}
+                </select>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    if (!newProductId) return;
+                    setNewLead((prev) => ({
+                      ...prev,
+                      productIds: prev.productIds.includes(newProductId)
+                        ? prev.productIds
+                        : [...prev.productIds, newProductId],
+                    }));
+                    setNewProductId("");
+                  }}
+                >
+                  {t("Add", "הוסף")}
+                </Button>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {newLead.productIds.map((id) => (
+                  <Badge key={id} variant="outline" className="gap-1 pr-1">
+                    {productNameById.get(id) ?? id.slice(0, 8)}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setNewLead((prev) => ({
+                          ...prev,
+                          productIds: prev.productIds.filter((pid) => pid !== id),
+                        }))
+                      }
+                      aria-label={t("Remove product", "הסר מוצר")}
+                    >
+                      <X className="size-3" />
+                    </button>
+                  </Badge>
                 ))}
-              </select>
+              </div>
             </div>
           </div>
 
@@ -289,7 +340,7 @@ export default function LeadsPage() {
                         onChange={(event) =>
                           void updateStatus(lead.id, event.target.value as LeadStatus)
                         }
-                        className="h-8 rounded-md border border-input bg-transparent px-2 text-xs"
+                        className="h-8 rounded-md border border-input bg-background text-foreground px-2 text-xs"
                       >
                         {LEAD_STATUSES.map((status) => (
                           <option key={status} value={status}>
