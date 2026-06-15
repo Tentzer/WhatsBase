@@ -121,6 +121,13 @@ class Agent(TimestampMixin, Base):
     # building | live | failed
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="building")
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    # Tenant controls for runtime behavior and lead automation.
+    auto_reply_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True
+    )
+    reengagement_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
 
 
 # --------------------------------------------------------------------------- #

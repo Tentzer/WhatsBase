@@ -9,13 +9,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import AuthContext, get_auth_context, require_tenant
 from app.api.schemas import (
     LeadAutomationEventResponse,
+    LeadAutomationSettingsResponse,
+    LeadAutomationSettingsUpdateRequest,
     LeadPayload,
     LeadProductsPayload,
     LeadResponse,
     LeadUpdatePayload,
 )
 from app.core.db import get_session
-from app.core.schema import Lead, LeadAutomationEvent, LeadProduct, Tenant
+from app.core.schema import Agent, Lead, LeadAutomationEvent, LeadProduct, Tenant
 from app.leads.service import (
     lead_automation_event_to_response,
     lead_query_for_tenant,
@@ -210,4 +212,53 @@ async def get_lead_automation_events(
         )
     ).scalars().all()
     return [lead_automation_event_to_response(event) for event in events]
+
+
+@router.get("/leads/automation/settings", response_model=LeadAutomationSettingsResponse)
+async def get_lead_automation_settings(
+    ctx: AuthContext = Depends(get_auth_context),
+    session: AsyncSession = Depends(get_session),
+) -> LeadAutomationSettingsResponse:
+    tenant_id = require_tenant(ctx)
+    agent = (
+        await session.execute(select(Agent).where(Agent.tenant_id == tenant_id))
+    ).scalar_one_or_none()
+    if agent is None:
+        return LeadAutomationSettingsResponse(
+            auto_reply_enabled=True,
+            reengagement_enabled=False,
+        )
+    return LeadAutomationSettingsResponse(
+        auto_reply_enabled=agent.auto_reply_enabled,
+        reengagement_enabled=agent.reengagement_enabled,
+    )
+
+
+@router.patch("/leads/automation/settings", response_model=LeadAutomationSettingsResponse)
+async def update_lead_automation_settings(
+    payload: LeadAutomationSettingsUpdateRequest,
+    ctx: AuthContext = Depends(get_auth_context),
+    session: AsyncSession = Depends(get_session),
+) -> LeadAutomationSettingsResponse:
+    tenant_id = require_tenant(ctx)
+    agent = (
+        await session.execute(select(Agent).where(Agent.tenant_id == tenant_id))
+    ).scalar_one_or_none()
+    if agent is None:
+        agent = Agent(tenant_id=tenant_id, status="building")
+        session.add(agent)
+        await session.flush()
+
+    data = payload.model_dump(exclude_unset=True)
+    if "auto_reply_enabled" in data:
+        agent.auto_reply_enabled = bool(data["auto_reply_enabled"])
+    if "reengagement_enabled" in data:
+        agent.reengagement_enabled = bool(data["reengagement_enabled"])
+
+    await session.commit()
+    await session.refresh(agent)
+    return LeadAutomationSettingsResponse(
+        auto_reply_enabled=agent.auto_reply_enabled,
+        reengagement_enabled=agent.reengagement_enabled,
+    )
 

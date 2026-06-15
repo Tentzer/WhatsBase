@@ -98,6 +98,11 @@ export interface LeadAutomationEvent {
   createdAt: string;
 }
 
+export interface LeadAutomationSettings {
+  autoReplyEnabled: boolean;
+  reengagementEnabled: boolean;
+}
+
 export interface LeadCreatePayload {
   fullName: string;
   phoneNumber: string;

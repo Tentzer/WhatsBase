@@ -159,7 +159,9 @@ async def test_evaluate_reengagement_candidate_low_confidence_no_send(monkeypatc
     session = _FakeSession(
         [
             _FakeScalarResult(lead),
-            _FakeScalarResult(SimpleNamespace(id="agent-1", status="live")),
+            _FakeScalarResult(
+                SimpleNamespace(id="agent-1", status="live", reengagement_enabled=True)
+            ),
             _FakeScalarsResult(SimpleNamespace(green_api_instance_id="inst-1")),
         ]
     )

@@ -236,3 +236,31 @@ async def test_run_agent_turn_persists_and_sends(monkeypatch):
     assert all(m.agent_trace_id == "trace-1" for m in outbound)
     image_row = next(m for m in outbound if m.type == "image")
     assert image_row.media_url == "https://img/sofa.jpg"
+
+
+@pytest.mark.asyncio
+async def test_run_agent_turn_skips_when_auto_reply_disabled(monkeypatch):
+    redis = FakeRedis()
+    chat = "972500000000@c.us"
+    redis.kv[tasks._token_key("inst-1", chat)] = 1
+    redis.lists[tasks._burst_key("inst-1", chat)] = [
+        json.dumps(_payload("m1", "hi", chat))
+    ]
+
+    instance = SimpleNamespace(tenant_id="t1")
+    session = FakeSession(instance)
+    monkeypatch.setattr(tasks, "SessionLocal", lambda: session)
+
+    async def fake_load_agent(session, tenant_id):  # noqa: ARG001
+        return SimpleNamespace(
+            status="live",
+            system_prompt="sp",
+            auto_reply_enabled=False,
+        )
+
+    monkeypatch.setattr(tasks.memory, "load_agent", fake_load_agent)
+
+    await tasks.run_agent_turn({"redis": redis}, "inst-1", chat, token=1)
+
+    assert not redis.jobs
+    assert not session.added

@@ -340,6 +340,12 @@ async def run_agent_turn(ctx: dict, instance_id: str, chat_id: str, token: int) 
                 "run_agent_turn: agent not live for tenant=%s — skipping", tenant_id
             )
             return
+        if not getattr(agent, "auto_reply_enabled", True):
+            logger.info(
+                "run_agent_turn: auto reply disabled for tenant=%s — skipping",
+                tenant_id,
+            )
+            return
 
         conversation = await memory.get_or_create_conversation(
             session, tenant_id, customer_phone
@@ -509,8 +515,11 @@ async def scan_reengagement_candidates(ctx: dict) -> None:
         rows = (
             await session.execute(
                 select(Lead.id, Lead.tenant_id)
+                .join(Agent, Agent.tenant_id == Lead.tenant_id)
                 .outerjoin(Conversation, Conversation.id == Lead.conversation_id)
                 .where(
+                    Agent.status == "live",
+                    Agent.reengagement_enabled.is_(True),
                     Lead.status == "not_interested",
                     Lead.phone_number.is_not(None),
                     Lead.phone_number != "",
@@ -595,6 +604,8 @@ async def evaluate_reengagement_candidate(
             )
         ).scalar_one_or_none()
         if active_agent is None:
+            return
+        if not getattr(active_agent, "reengagement_enabled", False):
             return
         instance = (
             await session.execute(

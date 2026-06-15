@@ -149,6 +149,16 @@ class LeadAutomationEventResponse(BaseModel):
     created_at: datetime
 
 
+class LeadAutomationSettingsResponse(BaseModel):
+    auto_reply_enabled: bool
+    reengagement_enabled: bool
+
+
+class LeadAutomationSettingsUpdateRequest(BaseModel):
+    auto_reply_enabled: bool | None = None
+    reengagement_enabled: bool | None = None
+
+
 class WhatsAppConnectRequest(BaseModel):
     instance_id: str = Field(min_length=1, max_length=64)
     token: str = Field(min_length=1)

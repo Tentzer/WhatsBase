@@ -6,6 +6,7 @@ import type {
   LangfuseAnalytics,
   Lead,
   LeadAutomationEvent,
+  LeadAutomationSettings,
   LeadCreatePayload,
   LeadStatus,
   MeResponse,
@@ -40,6 +41,11 @@ interface ApiClient {
   setLeadProducts: (id: string, productIds: string[]) => Promise<Lead>;
   deleteLead: (id: string) => Promise<void>;
   getLeadAutomationEvents: (id: string, limit?: number) => Promise<LeadAutomationEvent[]>;
+  getLeadAutomationSettings: () => Promise<LeadAutomationSettings>;
+  updateLeadAutomationSettings: (payload: {
+    autoReplyEnabled?: boolean;
+    reengagementEnabled?: boolean;
+  }) => Promise<LeadAutomationSettings>;
   syncProductsFromUploads: () => Promise<ProductDraft[]>;
   saveProducts: (products: ProductDraft[]) => Promise<ProductDraft[]>;
   deleteProduct: (id: string) => Promise<void>;
@@ -607,6 +613,36 @@ const realApi: ApiClient = {
       createdAt: row.created_at,
     }));
   },
+  getLeadAutomationSettings: async (): Promise<LeadAutomationSettings> => {
+    const res = await requestJson<{
+      auto_reply_enabled: boolean;
+      reengagement_enabled: boolean;
+    }>("/api/leads/automation/settings");
+    return {
+      autoReplyEnabled: res.auto_reply_enabled,
+      reengagementEnabled: res.reengagement_enabled,
+    };
+  },
+  updateLeadAutomationSettings: async (payload): Promise<LeadAutomationSettings> => {
+    const res = await requestJson<{
+      auto_reply_enabled: boolean;
+      reengagement_enabled: boolean;
+    }>("/api/leads/automation/settings", {
+      method: "PATCH",
+      body: {
+        ...(payload.autoReplyEnabled !== undefined
+          ? { auto_reply_enabled: payload.autoReplyEnabled }
+          : {}),
+        ...(payload.reengagementEnabled !== undefined
+          ? { reengagement_enabled: payload.reengagementEnabled }
+          : {}),
+      },
+    });
+    return {
+      autoReplyEnabled: res.auto_reply_enabled,
+      reengagementEnabled: res.reengagement_enabled,
+    };
+  },
   syncProductsFromUploads: async (): Promise<ProductDraft[]> => {
     const res = await requestJson<
       Array<{
@@ -865,6 +901,14 @@ export const api: ApiClient = useMockApi
         costByModel: [],
         dailyUsageLast7Days: [],
         latencyByName: [],
+      }),
+      getLeadAutomationSettings: async (): Promise<LeadAutomationSettings> => ({
+        autoReplyEnabled: true,
+        reengagementEnabled: false,
+      }),
+      updateLeadAutomationSettings: async (payload): Promise<LeadAutomationSettings> => ({
+        autoReplyEnabled: payload.autoReplyEnabled ?? true,
+        reengagementEnabled: payload.reengagementEnabled ?? false,
       }),
     } as ApiClient)
   : realApi;

@@ -11,7 +11,13 @@ import { Badge } from "@/components/ui/badge";
 import { api } from "@/lib/api";
 import { useLocale } from "@/lib/locale";
 import { cn } from "@/lib/utils";
-import type { Lead, LeadCreatePayload, LeadStatus, ProductDraft } from "@/lib/types";
+import type {
+  Lead,
+  LeadAutomationSettings,
+  LeadCreatePayload,
+  LeadStatus,
+  ProductDraft,
+} from "@/lib/types";
 
 const LEAD_STATUSES: LeadStatus[] = [
   "pending",
@@ -31,6 +37,13 @@ export default function LeadsPage() {
   const [statusFilter, setStatusFilter] = useState<LeadStatus | "all">("all");
   const [productFilter, setProductFilter] = useState<string>("all");
   const [error, setError] = useState<string | null>(null);
+  const [automationSettings, setAutomationSettings] = useState<LeadAutomationSettings>({
+    autoReplyEnabled: true,
+    reengagementEnabled: false,
+  });
+  const [automationSaving, setAutomationSaving] = useState<"autoReply" | "reengagement" | null>(
+    null,
+  );
   const [newProductId, setNewProductId] = useState<string>("");
   const [newLead, setNewLead] = useState<LeadCreatePayload>({
     fullName: "",
@@ -57,16 +70,18 @@ export default function LeadsPage() {
     setLoading(true);
     setError(null);
     try {
-      const [leadRows, productRows] = await Promise.all([
+      const [leadRows, productRows, settings] = await Promise.all([
         api.getLeads({
           status: statusFilter === "all" ? undefined : statusFilter,
           q: search || undefined,
           productId: productFilter === "all" ? undefined : productFilter,
         }),
         api.getProducts(),
+        api.getLeadAutomationSettings(),
       ]);
       setLeads(leadRows);
       setProducts(productRows);
+      setAutomationSettings(settings);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -147,6 +162,38 @@ export default function LeadsPage() {
     }
   };
 
+  const setAutoReplyEnabled = (nextValue: boolean) => {
+    const previous = automationSettings;
+    setAutomationSaving("autoReply");
+    setAutomationSettings((prev) => ({ ...prev, autoReplyEnabled: nextValue }));
+    void api
+      .updateLeadAutomationSettings({ autoReplyEnabled: nextValue })
+      .then((updated) => {
+        setAutomationSettings(updated);
+      })
+      .catch((err) => {
+        setAutomationSettings(previous);
+        setError(err instanceof Error ? err.message : String(err));
+      })
+      .finally(() => setAutomationSaving(null));
+  };
+
+  const setReengagementEnabled = (nextValue: boolean) => {
+    const previous = automationSettings;
+    setAutomationSaving("reengagement");
+    setAutomationSettings((prev) => ({ ...prev, reengagementEnabled: nextValue }));
+    void api
+      .updateLeadAutomationSettings({ reengagementEnabled: nextValue })
+      .then((updated) => {
+        setAutomationSettings(updated);
+      })
+      .catch((err) => {
+        setAutomationSettings(previous);
+        setError(err instanceof Error ? err.message : String(err));
+      })
+      .finally(() => setAutomationSaving(null));
+  };
+
   return (
     <div className="space-y-6">
       <Card>
@@ -203,6 +250,61 @@ export default function LeadsPage() {
               <Button type="button" variant="outline" onClick={() => void loadData()}>
                 {t("Apply filters", "החל מסננים")}
               </Button>
+            </div>
+          </div>
+
+          <div className="rounded-lg border p-4">
+            <div className="mb-3 text-sm font-medium">
+              {t("Automation controls", "בקרות אוטומציה")}
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <button
+                type="button"
+                onClick={() => setReengagementEnabled(!automationSettings.reengagementEnabled)}
+                disabled={automationSaving === "reengagement"}
+                className={cn(
+                  "rounded-md border px-3 py-2 text-left text-sm transition-colors",
+                  automationSettings.reengagementEnabled
+                    ? "border-emerald-500/40 bg-emerald-500/10"
+                    : "border-border bg-muted/20",
+                )}
+              >
+                <div className="font-medium">
+                  {t("Re-engage after 2 months", "יצירת קשר מחדש אחרי חודשיים")}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {automationSettings.reengagementEnabled
+                    ? t("Enabled", "פעיל")
+                    : t("Disabled", "כבוי")}
+                  {automationSaving === "reengagement" ? (
+                    <Loader2 className="ml-2 inline size-3 animate-spin" />
+                  ) : null}
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setAutoReplyEnabled(!automationSettings.autoReplyEnabled)}
+                disabled={automationSaving === "autoReply"}
+                className={cn(
+                  "rounded-md border px-3 py-2 text-left text-sm transition-colors",
+                  automationSettings.autoReplyEnabled
+                    ? "border-emerald-500/40 bg-emerald-500/10"
+                    : "border-border bg-muted/20",
+                )}
+              >
+                <div className="font-medium">
+                  {t("Agent auto-reply on WhatsApp", "מענה אוטומטי בוואטסאפ")}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {automationSettings.autoReplyEnabled
+                    ? t("Enabled", "פעיל")
+                    : t("Disabled", "כבוי")}
+                  {automationSaving === "autoReply" ? (
+                    <Loader2 className="ml-2 inline size-3 animate-spin" />
+                  ) : null}
+                </div>
+              </button>
             </div>
           </div>
 
