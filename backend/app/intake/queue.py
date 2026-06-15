@@ -33,6 +33,7 @@ class WorkerSettings:
     functions = [
         _tasks.process_incoming_message,
         _tasks.run_agent_turn,
+        _tasks.summarize_lead_after_idle,
         _tasks.send_outgoing,
         _tasks.run_build,
         _tasks.run_incremental_build,

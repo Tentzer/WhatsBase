@@ -155,6 +155,62 @@ class Product(TimestampMixin, Base):
     )
 
 
+class Lead(TimestampMixin, Base):
+    __tablename__ = "leads"
+    __table_args__ = (
+        Index("uq_leads_tenant_phone_number", "tenant_id", "phone_number", unique=True),
+        Index("ix_leads_tenant_status", "tenant_id", "status"),
+        Index("ix_leads_tenant_last_message_sent_at", "tenant_id", "last_message_sent_at"),
+    )
+
+    id: Mapped[str] = _pk()
+    tenant_id: Mapped[str] = _tenant_fk()
+    full_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    phone_number: Mapped[str] = mapped_column(String(32), nullable=False)
+    # pending | contacted | qualified | not_interested | success
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
+    did_buy: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    business_name: Mapped[str | None] = mapped_column(String(255))
+    source: Mapped[str] = mapped_column(String(32), nullable=False, default="manual")
+    notes: Mapped[str | None] = mapped_column(Text)
+    last_message_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    next_follow_up_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_conversation_summary: Mapped[str | None] = mapped_column(Text)
+    conversation_id: Mapped[str | None] = mapped_column(
+        UUID(as_uuid=False),
+        ForeignKey("conversations.id", ondelete="SET NULL"),
+        index=True,
+    )
+
+    interested_products: Mapped[list[LeadProduct]] = relationship(
+        back_populates="lead", cascade="all, delete-orphan"
+    )
+
+
+class LeadProduct(TimestampMixin, Base):
+    __tablename__ = "lead_products"
+    __table_args__ = (
+        Index("uq_lead_products_lead_product", "lead_id", "product_id", unique=True),
+    )
+
+    id: Mapped[str] = _pk()
+    lead_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False),
+        ForeignKey("leads.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    product_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False),
+        ForeignKey("products.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    lead: Mapped[Lead] = relationship(back_populates="interested_products")
+    product: Mapped[Product] = relationship()
+
+
 class ProductImage(TimestampMixin, Base):
     __tablename__ = "product_images"
 

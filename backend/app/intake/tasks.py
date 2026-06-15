@@ -27,7 +27,23 @@ from sqlalchemy import select, update
 from app.adapters.whatsapp import get_adapter
 from app.core.config import get_settings
 from app.core.db import SessionLocal
-from app.core.schema import Agent, BuildRun, BusinessInfo, Message, Product, WhatsAppInstance
+from app.core.schema import (
+    Agent,
+    BuildRun,
+    BusinessInfo,
+    Lead,
+    LeadProduct,
+    Message,
+    Product,
+    Tenant,
+    WhatsAppInstance,
+)
+from app.leads.service import (
+    generate_lead_summary,
+    normalize_phone,
+    replace_lead_products,
+    validate_tenant_products,
+)
 from app.runtime import memory
 from app.runtime.context import TurnContext
 from app.runtime.conversation import run_turn
@@ -37,6 +53,8 @@ logger = logging.getLogger(__name__)
 _IDEMPOTENCY_TTL = 86_400  # 24 hours — long enough to cover any retry window
 _DEBOUNCE_SECONDS = 2.5  # wait this long, merging a burst from the same chat
 _BURST_TTL = 60  # safety expiry on the burst buffer (seconds)
+_SUMMARY_DEFER_SECONDS = 300  # summarize after 5m of chat inactivity
+_SUMMARY_TOKEN_TTL = 3_600
 
 
 def _normalize_wa_digits(raw: str) -> str:
@@ -97,6 +115,126 @@ def _burst_key(instance_id: str, chat_id: str) -> str:
 
 def _token_key(instance_id: str, chat_id: str) -> str:
     return f"debounce:{instance_id}:{chat_id}"
+
+
+def _summary_token_key(instance_id: str, chat_id: str) -> str:
+    return f"lead-summary:{instance_id}:{chat_id}"
+
+
+async def _upsert_lead_after_turn(
+    *,
+    session,
+    tenant_id: str,
+    customer_phone: str,
+    conversation_id: str,
+    result,
+    now: datetime,
+) -> None:
+    phone = normalize_phone(customer_phone)
+    lead = (
+        await session.execute(
+            select(Lead).where(Lead.tenant_id == tenant_id, Lead.phone_number == phone)
+        )
+    ).scalar_one_or_none()
+
+    if lead is None:
+        tenant = await session.get(Tenant, tenant_id)
+        lead = Lead(
+            tenant_id=tenant_id,
+            full_name=f"Lead {phone[-4:]}" if phone else "New Lead",
+            phone_number=phone,
+            status="pending",
+            source="whatsapp_auto",
+            business_name=tenant.name if tenant else None,
+        )
+        session.add(lead)
+        await session.flush()
+
+    lead.conversation_id = conversation_id
+    lead.last_message_sent_at = now
+    if not lead.business_name:
+        tenant = await session.get(Tenant, tenant_id)
+        lead.business_name = tenant.name if tenant else None
+
+    product_ids = [card.id for card in result.cards if card.id]
+    if product_ids:
+        try:
+            valid_product_ids = await validate_tenant_products(
+                session, tenant_id=tenant_id, product_ids=product_ids
+            )
+            await replace_lead_products(
+                session, lead_id=lead.id, product_ids=valid_product_ids
+            )
+        except ValueError:
+            logger.warning(
+                "lead product sync skipped tenant=%s phone=%s due to invalid product ids",
+                tenant_id,
+                phone,
+            )
+
+    # Summary runs in a separate idle job after 5m with no new inbound messages.
+
+
+async def summarize_lead_after_idle(
+    ctx: dict,
+    instance_id: str,
+    chat_id: str,
+    tenant_id: str,
+    customer_phone: str,
+    token: int,
+) -> None:
+    """Summarize only after chat inactivity (latest token wins)."""
+    redis: ArqRedis = ctx["redis"]
+    current = await redis.get(_summary_token_key(instance_id, chat_id))
+    if current is None or int(current) != token:
+        return
+
+    normalized_phone = normalize_phone(customer_phone)
+    async with SessionLocal() as session:
+        lead = (
+            await session.execute(
+                select(Lead).where(
+                    Lead.tenant_id == tenant_id,
+                    Lead.phone_number == normalized_phone,
+                )
+            )
+        ).scalar_one_or_none()
+        if lead is None or not lead.conversation_id:
+            return
+
+        recent_messages = await memory.recent_messages(
+            session, lead.conversation_id, limit=20
+        )
+        product_hints: list[str] = []
+        lead_product_ids = [
+            row[0]
+            for row in (
+                await session.execute(
+                    select(LeadProduct.product_id).where(LeadProduct.lead_id == lead.id)
+                )
+            ).all()
+        ]
+        if lead_product_ids:
+            products = (
+                await session.execute(
+                    select(Product).where(
+                        Product.tenant_id == tenant_id,
+                        Product.id.in_(lead_product_ids),
+                    )
+                )
+            ).scalars().all()
+            product_hints = [
+                (product.name_en or product.name_he or product.stable_key)
+                for product in products
+            ]
+
+        lead.last_conversation_summary = await generate_lead_summary(
+            messages=recent_messages,
+            stage=lead.status,  # type: ignore[arg-type]
+            interested_product_hints=product_hints,
+            previous_summary=lead.last_conversation_summary,
+        )
+        await session.commit()
 
 
 async def process_incoming_message(ctx: dict, payload: dict) -> None:
@@ -172,6 +310,7 @@ async def run_agent_turn(ctx: dict, instance_id: str, chat_id: str, token: int) 
     ).strip()
     user_text = merged_text or "(the customer sent a message with no text)"
     customer_phone = chat_id.split("@", 1)[0]
+    normalized_phone = normalize_phone(customer_phone)
 
     async with SessionLocal() as session:
         instance = (
@@ -196,6 +335,14 @@ async def run_agent_turn(ctx: dict, instance_id: str, chat_id: str, token: int) 
         conversation = await memory.get_or_create_conversation(
             session, tenant_id, customer_phone
         )
+        lead_for_context = (
+            await session.execute(
+                select(Lead).where(
+                    Lead.tenant_id == tenant_id,
+                    Lead.phone_number == normalized_phone,
+                )
+            )
+        ).scalar_one_or_none()
         history = await memory.recent_messages(session, conversation.id)
 
         now = datetime.now(timezone.utc)
@@ -228,6 +375,11 @@ async def run_agent_turn(ctx: dict, instance_id: str, chat_id: str, token: int) 
             history=history,
             user_text=user_text,
             ctx=turn_ctx,
+            lead_summary=(
+                lead_for_context.last_conversation_summary
+                if lead_for_context is not None
+                else None
+            ),
         )
 
         # Persist outbound: product cards (images, already enqueued by the tool)
@@ -253,7 +405,28 @@ async def run_agent_turn(ctx: dict, instance_id: str, chat_id: str, token: int) 
             )
         )
         conversation.last_message_at = now
+        await session.flush()
+        await _upsert_lead_after_turn(
+            session=session,
+            tenant_id=tenant_id,
+            customer_phone=customer_phone,
+            conversation_id=conversation.id,
+            result=result,
+            now=now,
+        )
         await session.commit()
+
+        summary_token = await redis.incr(_summary_token_key(instance_id, chat_id))
+        await redis.expire(_summary_token_key(instance_id, chat_id), _SUMMARY_TOKEN_TTL)
+        await redis.enqueue_job(
+            "summarize_lead_after_idle",
+            instance_id,
+            chat_id,
+            tenant_id,
+            customer_phone,
+            summary_token,
+            _defer_by=_SUMMARY_DEFER_SECONDS,
+        )
 
     await redis.enqueue_job(
         "send_outgoing",

@@ -86,6 +86,7 @@ async def run_turn(
     user_text: str,
     ctx: TurnContext,
     model_role: str = "conversation",
+    lead_summary: str | None = None,
 ) -> TurnResult:
     """Run one agent turn: native tool-use loop, max iterations, then a graceful
     language-mirrored fallback. Returns the reply text + any cards + handoff."""
@@ -96,7 +97,18 @@ async def run_turn(
     ctx.lang = lang
     update_trace(tenant_id=tenant_id, conversation_id=ctx.conversation_id)
 
-    full_system = f"{system_prompt}\n\n{guardrails.system_preamble(lang, _now_str())}"
+    lead_memory_block = (
+        (
+            "\n\nLead memory from previous conversations:\n"
+            f"{lead_summary}\n\n"
+            "Use this as context continuity only. Prefer current-turn facts when there is a conflict."
+        )
+        if lead_summary
+        else ""
+    )
+    full_system = (
+        f"{system_prompt}\n\n{guardrails.system_preamble(lang, _now_str())}{lead_memory_block}"
+    )
     messages = _format_history(history)
     messages.append({"role": "user", "content": user_text})
 

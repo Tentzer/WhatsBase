@@ -5,7 +5,10 @@ import { updateSession } from "@/lib/supabase/middleware";
 export async function proxy(request: NextRequest) {
   const response = await updateSession(request);
   const pathname = request.nextUrl.pathname;
-  const protectedPath = pathname.startsWith("/onboarding") || pathname.startsWith("/test-chat");
+  const protectedPath =
+    pathname.startsWith("/onboarding") ||
+    pathname.startsWith("/test-chat") ||
+    pathname.startsWith("/leads");
   if (!protectedPath) return response;
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -30,5 +33,5 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/onboarding/:path*", "/test-chat"],
+  matcher: ["/onboarding/:path*", "/test-chat", "/leads/:path*"],
 };

@@ -3,6 +3,9 @@ import type {
   BuildRun,
   BuildStatus,
   BusinessInfoBlock,
+  Lead,
+  LeadCreatePayload,
+  LeadStatus,
   MeResponse,
   ProductDraft,
   ProductImageDraft,
@@ -16,6 +19,7 @@ import { DEMO_SELF_TEST_RESULTS } from "@/lib/mock/data";
 import { loadState, randomId, updateState } from "@/lib/mock/storage";
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+let mockLeads: Lead[] = [];
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -150,6 +154,96 @@ export const mockApi = {
 
   async getProducts(): Promise<ProductDraft[]> {
     return loadState().products;
+  },
+
+  async getLeads(params?: { status?: LeadStatus; q?: string }): Promise<Lead[]> {
+    let rows = [...mockLeads];
+    if (params?.status) {
+      rows = rows.filter((lead) => lead.status === params.status);
+    }
+    if (params?.q?.trim()) {
+      const q = params.q.toLowerCase();
+      rows = rows.filter(
+        (lead) =>
+          lead.fullName.toLowerCase().includes(q) ||
+          lead.phoneNumber.toLowerCase().includes(q) ||
+          (lead.notes ?? "").toLowerCase().includes(q),
+      );
+    }
+    return rows.sort((a, b) => (a.updatedAt > b.updatedAt ? -1 : 1));
+  },
+
+  async createLead(payload: LeadCreatePayload): Promise<Lead> {
+    const now = nowIso();
+    const lead: Lead = {
+      id: randomId("lead"),
+      fullName: payload.fullName,
+      phoneNumber: payload.phoneNumber,
+      status: payload.status,
+      didBuy: payload.didBuy,
+      businessName: payload.businessName,
+      source: payload.source ?? "manual",
+      notes: payload.notes,
+      nextFollowUpAt: payload.nextFollowUpAt,
+      lastMessageSentAt: now,
+      lastConversationSummary: undefined,
+      productIds: payload.productIds ?? [],
+      createdAt: now,
+      updatedAt: now,
+    };
+    mockLeads = [lead, ...mockLeads];
+    return lead;
+  },
+
+  async updateLead(
+    id: string,
+    payload: Partial<
+      Omit<LeadCreatePayload, "productIds"> & {
+        lastConversationSummary: string;
+        lastMessageSentAt: string;
+      }
+    >,
+  ): Promise<Lead> {
+    const idx = mockLeads.findIndex((lead) => lead.id === id);
+    if (idx < 0) {
+      throw new Error("Lead not found");
+    }
+    const prev = mockLeads[idx];
+    const next: Lead = {
+      ...prev,
+      fullName: payload.fullName ?? prev.fullName,
+      phoneNumber: payload.phoneNumber ?? prev.phoneNumber,
+      status: payload.status ?? prev.status,
+      didBuy: payload.didBuy ?? prev.didBuy,
+      businessName: payload.businessName ?? prev.businessName,
+      source: payload.source ?? prev.source,
+      notes: payload.notes ?? prev.notes,
+      nextFollowUpAt: payload.nextFollowUpAt ?? prev.nextFollowUpAt,
+      lastConversationSummary:
+        payload.lastConversationSummary ?? prev.lastConversationSummary,
+      lastMessageSentAt: payload.lastMessageSentAt ?? prev.lastMessageSentAt,
+      updatedAt: nowIso(),
+    };
+    mockLeads[idx] = next;
+    return next;
+  },
+
+  async setLeadProducts(id: string, productIds: string[]): Promise<Lead> {
+    const idx = mockLeads.findIndex((lead) => lead.id === id);
+    if (idx < 0) {
+      throw new Error("Lead not found");
+    }
+    const next: Lead = {
+      ...mockLeads[idx],
+      productIds: [...productIds],
+      updatedAt: nowIso(),
+    };
+    mockLeads[idx] = next;
+    return next;
+  },
+
+  async deleteLead(id: string): Promise<void> {
+    mockLeads = mockLeads.filter((lead) => lead.id !== id);
   },
 
   async saveProducts(products: ProductDraft[]): Promise<ProductDraft[]> {

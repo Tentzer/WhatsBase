@@ -4,6 +4,9 @@ import type {
   BuildStatus,
   BusinessInfoBlock,
   LangfuseAnalytics,
+  Lead,
+  LeadCreatePayload,
+  LeadStatus,
   MeResponse,
   ProductDraft,
   ProductImageDraft,
@@ -22,6 +25,19 @@ interface ApiClient {
   getBusinessInfo: () => Promise<BusinessInfoBlock[]>;
   saveBusinessInfo: (payload: BusinessInfoBlock[]) => Promise<BusinessInfoBlock[]>;
   getProducts: () => Promise<ProductDraft[]>;
+  getLeads: (params?: { status?: LeadStatus; q?: string }) => Promise<Lead[]>;
+  createLead: (payload: LeadCreatePayload) => Promise<Lead>;
+  updateLead: (
+    id: string,
+    payload: Partial<
+      Omit<LeadCreatePayload, "productIds"> & {
+        lastConversationSummary: string;
+        lastMessageSentAt: string;
+      }
+    >,
+  ) => Promise<Lead>;
+  setLeadProducts: (id: string, productIds: string[]) => Promise<Lead>;
+  deleteLead: (id: string) => Promise<void>;
   syncProductsFromUploads: () => Promise<ProductDraft[]>;
   saveProducts: (products: ProductDraft[]) => Promise<ProductDraft[]>;
   deleteProduct: (id: string) => Promise<void>;
@@ -77,7 +93,7 @@ async function getSessionContext(): Promise<{
 async function requestJson<T>(
   path: string,
   init?: {
-    method?: "GET" | "POST" | "PATCH" | "DELETE";
+    method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
     body?: unknown;
     timeoutMs?: number;
   },
@@ -196,6 +212,40 @@ function mapProductCard(card: ApiProductCard) {
     price: Number(card.price || 0),
     currency: card.currency,
     category: card.category ?? undefined,
+  };
+}
+
+function mapApiLeadToLead(lead: {
+  id: string;
+  full_name: string;
+  phone_number: string;
+  status: LeadStatus;
+  did_buy: boolean;
+  business_name?: string | null;
+  source: string;
+  notes?: string | null;
+  next_follow_up_at?: string | null;
+  last_message_sent_at?: string | null;
+  last_conversation_summary?: string | null;
+  product_ids: string[];
+  created_at: string;
+  updated_at: string;
+}): Lead {
+  return {
+    id: lead.id,
+    fullName: lead.full_name,
+    phoneNumber: lead.phone_number,
+    status: lead.status,
+    didBuy: lead.did_buy,
+    businessName: lead.business_name ?? undefined,
+    source: lead.source,
+    notes: lead.notes ?? undefined,
+    nextFollowUpAt: lead.next_follow_up_at ?? undefined,
+    lastMessageSentAt: lead.last_message_sent_at ?? undefined,
+    lastConversationSummary: lead.last_conversation_summary ?? undefined,
+    productIds: lead.product_ids ?? [],
+    createdAt: lead.created_at,
+    updatedAt: lead.updated_at,
   };
 }
 
@@ -378,6 +428,129 @@ const realApi: ApiClient = {
       }>
     >("/api/products");
     return res.map((item) => mapApiProductToDraft(item));
+  },
+  getLeads: async (params): Promise<Lead[]> => {
+    const search = new URLSearchParams();
+    if (params?.status) {
+      search.set("status", params.status);
+    }
+    if (params?.q?.trim()) {
+      search.set("q", params.q.trim());
+    }
+    const qs = search.toString();
+    const res = await requestJson<
+      Array<{
+        id: string;
+        full_name: string;
+        phone_number: string;
+        status: LeadStatus;
+        did_buy: boolean;
+        business_name?: string | null;
+        source: string;
+        notes?: string | null;
+        next_follow_up_at?: string | null;
+        last_message_sent_at?: string | null;
+        last_conversation_summary?: string | null;
+        product_ids: string[];
+        created_at: string;
+        updated_at: string;
+      }>
+    >(`/api/leads${qs ? `?${qs}` : ""}`);
+    return res.map((item) => mapApiLeadToLead(item));
+  },
+  createLead: async (payload: LeadCreatePayload): Promise<Lead> => {
+    const res = await requestJson<{
+      id: string;
+      full_name: string;
+      phone_number: string;
+      status: LeadStatus;
+      did_buy: boolean;
+      business_name?: string | null;
+      source: string;
+      notes?: string | null;
+      next_follow_up_at?: string | null;
+      last_message_sent_at?: string | null;
+      last_conversation_summary?: string | null;
+      product_ids: string[];
+      created_at: string;
+      updated_at: string;
+    }>("/api/leads", {
+      method: "POST",
+      body: {
+        full_name: payload.fullName,
+        phone_number: payload.phoneNumber,
+        status: payload.status,
+        did_buy: payload.didBuy,
+        business_name: payload.businessName ?? null,
+        source: payload.source ?? "manual",
+        notes: payload.notes ?? null,
+        next_follow_up_at: payload.nextFollowUpAt ?? null,
+        product_ids: payload.productIds,
+      },
+    });
+    return mapApiLeadToLead(res);
+  },
+  updateLead: async (id, payload): Promise<Lead> => {
+    const res = await requestJson<{
+      id: string;
+      full_name: string;
+      phone_number: string;
+      status: LeadStatus;
+      did_buy: boolean;
+      business_name?: string | null;
+      source: string;
+      notes?: string | null;
+      next_follow_up_at?: string | null;
+      last_message_sent_at?: string | null;
+      last_conversation_summary?: string | null;
+      product_ids: string[];
+      created_at: string;
+      updated_at: string;
+    }>(`/api/leads/${id}`, {
+      method: "PATCH",
+      body: {
+        ...(payload.fullName !== undefined ? { full_name: payload.fullName } : {}),
+        ...(payload.phoneNumber !== undefined ? { phone_number: payload.phoneNumber } : {}),
+        ...(payload.status !== undefined ? { status: payload.status } : {}),
+        ...(payload.didBuy !== undefined ? { did_buy: payload.didBuy } : {}),
+        ...(payload.businessName !== undefined ? { business_name: payload.businessName } : {}),
+        ...(payload.source !== undefined ? { source: payload.source } : {}),
+        ...(payload.notes !== undefined ? { notes: payload.notes } : {}),
+        ...(payload.nextFollowUpAt !== undefined ? { next_follow_up_at: payload.nextFollowUpAt } : {}),
+        ...(payload.lastConversationSummary !== undefined
+          ? { last_conversation_summary: payload.lastConversationSummary }
+          : {}),
+        ...(payload.lastMessageSentAt !== undefined
+          ? { last_message_sent_at: payload.lastMessageSentAt }
+          : {}),
+      },
+    });
+    return mapApiLeadToLead(res);
+  },
+  setLeadProducts: async (id, productIds): Promise<Lead> => {
+    const res = await requestJson<{
+      id: string;
+      full_name: string;
+      phone_number: string;
+      status: LeadStatus;
+      did_buy: boolean;
+      business_name?: string | null;
+      source: string;
+      notes?: string | null;
+      next_follow_up_at?: string | null;
+      last_message_sent_at?: string | null;
+      last_conversation_summary?: string | null;
+      product_ids: string[];
+      created_at: string;
+      updated_at: string;
+    }>(`/api/leads/${id}/products`, {
+      method: "PUT",
+      body: { product_ids: productIds },
+    });
+    return mapApiLeadToLead(res);
+  },
+  deleteLead: async (id: string): Promise<void> => {
+    await requestJson<void>(`/api/leads/${id}`, { method: "DELETE" });
   },
   syncProductsFromUploads: async (): Promise<ProductDraft[]> => {
     const res = await requestJson<

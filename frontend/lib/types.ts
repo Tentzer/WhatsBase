@@ -57,6 +57,42 @@ export interface ProductDraft {
   image?: ProductImageDraft;
 }
 
+export type LeadStatus =
+  | "pending"
+  | "contacted"
+  | "qualified"
+  | "not_interested"
+  | "success";
+
+export interface Lead {
+  id: string;
+  fullName: string;
+  phoneNumber: string;
+  status: LeadStatus;
+  didBuy: boolean;
+  businessName?: string;
+  source: string;
+  notes?: string;
+  nextFollowUpAt?: string;
+  lastMessageSentAt?: string;
+  lastConversationSummary?: string;
+  productIds: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface LeadCreatePayload {
+  fullName: string;
+  phoneNumber: string;
+  status: LeadStatus;
+  didBuy: boolean;
+  businessName?: string;
+  source?: string;
+  notes?: string;
+  nextFollowUpAt?: string;
+  productIds: string[];
+}
+
 export interface WhatsAppConnectRequest {
   instanceId: string;
   token: string;

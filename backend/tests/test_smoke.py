@@ -15,6 +15,8 @@ EXPECTED_TABLES = {
     "whatsapp_instances",
     "agents",
     "products",
+    "leads",
+    "lead_products",
     "product_images",
     "embeddings",
     "business_info",
@@ -50,7 +52,7 @@ def test_all_tables_registered():
 def test_every_domain_table_has_tenant_id():
     # Tenant isolation is the core invariant — every domain table (except the
     # child tables isolated via their parent) must carry tenant_id.
-    child_tables = {"product_images", "messages", "tenants"}
+    child_tables = {"product_images", "messages", "lead_products", "tenants"}
     for name, table in Base.metadata.tables.items():
         if name in child_tables:
             continue

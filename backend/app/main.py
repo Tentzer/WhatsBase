@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.agent_runtime import router as agent_runtime_router
 from app.api.analytics import router as analytics_router
 from app.api.health import router as health_router
+from app.api.leads import router as leads_router
 from app.api.onboarding import router as onboarding_router
 from app.core.config import get_settings
 from app.intake.webhook import router as webhook_router
@@ -44,5 +45,6 @@ app.add_middleware(
 app.include_router(health_router)
 app.include_router(webhook_router)
 app.include_router(onboarding_router)
+app.include_router(leads_router)
 app.include_router(agent_runtime_router)
 app.include_router(analytics_router)

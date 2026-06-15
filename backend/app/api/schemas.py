@@ -77,6 +77,61 @@ class ProductResponse(BaseModel):
     image: ProductImagePayload | None = None
 
 
+LeadStatus = Literal[
+    "pending",
+    "contacted",
+    "qualified",
+    "not_interested",
+    "success",
+]
+
+
+class LeadPayload(BaseModel):
+    full_name: str = Field(min_length=1, max_length=255)
+    phone_number: str = Field(min_length=3, max_length=32)
+    status: LeadStatus = "pending"
+    did_buy: bool = False
+    business_name: str | None = None
+    source: str = "manual"
+    notes: str | None = None
+    next_follow_up_at: datetime | None = None
+    product_ids: list[str] = Field(default_factory=list)
+
+
+class LeadUpdatePayload(BaseModel):
+    full_name: str | None = Field(default=None, min_length=1, max_length=255)
+    phone_number: str | None = Field(default=None, min_length=3, max_length=32)
+    status: LeadStatus | None = None
+    did_buy: bool | None = None
+    business_name: str | None = None
+    source: str | None = None
+    notes: str | None = None
+    next_follow_up_at: datetime | None = None
+    last_conversation_summary: str | None = None
+    last_message_sent_at: datetime | None = None
+
+
+class LeadProductsPayload(BaseModel):
+    product_ids: list[str] = Field(default_factory=list)
+
+
+class LeadResponse(BaseModel):
+    id: str
+    full_name: str
+    phone_number: str
+    status: LeadStatus
+    did_buy: bool
+    business_name: str | None = None
+    source: str
+    notes: str | None = None
+    next_follow_up_at: datetime | None = None
+    last_message_sent_at: datetime | None = None
+    last_conversation_summary: str | None = None
+    product_ids: list[str] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
+
+
 class WhatsAppConnectRequest(BaseModel):
     instance_id: str = Field(min_length=1, max_length=64)
     token: str = Field(min_length=1)

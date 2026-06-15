@@ -25,6 +25,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const isOnboarding = pathname.startsWith("/onboarding");
   const isTestChat = pathname.startsWith("/test-chat");
+  const isLeads = pathname.startsWith("/leads");
   const canViewAnalytics = userEmail === "roytentzer@gmail.com";
 
   useEffect(() => {
@@ -100,6 +101,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               >
                 {t("Test Chat", "צ׳אט בדיקה")}
               </Link>
+              <Link
+                href="/leads"
+                className={cn(
+                  "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
+                  isLeads
+                    ? "bg-brand/10 text-brand"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {t("Leads", "לידים")}
+              </Link>
             </nav>
           </div>
 
@@ -167,6 +179,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             )}
           >
             {t("Test Chat", "צ׳אט בדיקה")}
+          </Link>
+          <Link
+            href="/leads"
+            className={cn(
+              "flex-1 rounded-lg px-3 py-1.5 text-center text-sm font-medium transition-colors",
+              isLeads ? "bg-brand/10 text-brand" : "text-muted-foreground",
+            )}
+          >
+            {t("Leads", "לידים")}
           </Link>
         </nav>
       </header>

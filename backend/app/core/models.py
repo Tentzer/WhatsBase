@@ -48,7 +48,7 @@ BUILDER = ModelConfig(
 CONVERSATION = ModelConfig(
     role="conversation",
     provider="anthropic",
-    name="claude-haiku-4-5",
+    name="claude-sonnet-4-6",
     max_tokens=2048,
     temperature=0.3,
 )

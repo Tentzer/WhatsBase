@@ -1,0 +1,349 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { Loader2, Plus } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
+import { api } from "@/lib/api";
+import { useLocale } from "@/lib/locale";
+import type { Lead, LeadCreatePayload, LeadStatus, ProductDraft } from "@/lib/types";
+
+const LEAD_STATUSES: LeadStatus[] = [
+  "pending",
+  "contacted",
+  "qualified",
+  "not_interested",
+  "success",
+];
+
+export default function LeadsPage() {
+  const { t } = useLocale();
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [products, setProducts] = useState<ProductDraft[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<LeadStatus | "all">("all");
+  const [error, setError] = useState<string | null>(null);
+  const [newLead, setNewLead] = useState<LeadCreatePayload>({
+    fullName: "",
+    phoneNumber: "",
+    status: "pending",
+    didBuy: false,
+    source: "manual",
+    notes: "",
+    productIds: [],
+  });
+
+  const productNameById = useMemo(
+    () =>
+      new Map(
+        products.map((product) => [
+          product.id,
+          product.nameEn || product.nameHe || product.stableKey,
+        ]),
+      ),
+    [products],
+  );
+
+  const loadData = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [leadRows, productRows] = await Promise.all([
+        api.getLeads({
+          status: statusFilter === "all" ? undefined : statusFilter,
+          q: search || undefined,
+        }),
+        api.getProducts(),
+      ]);
+      setLeads(leadRows);
+      setProducts(productRows);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void loadData();
+    }, 0);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statusFilter]);
+
+  const createLead = async () => {
+    if (!newLead.fullName.trim() || !newLead.phoneNumber.trim()) {
+      setError(t("Name and phone are required.", "שם וטלפון הם שדות חובה."));
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      const created = await api.createLead({
+        ...newLead,
+        fullName: newLead.fullName.trim(),
+        phoneNumber: newLead.phoneNumber.trim(),
+      });
+      setLeads((prev) => [created, ...prev]);
+      setNewLead({
+        fullName: "",
+        phoneNumber: "",
+        status: "pending",
+        didBuy: false,
+        source: "manual",
+        notes: "",
+        productIds: [],
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const updateStatus = async (leadId: string, status: LeadStatus) => {
+    try {
+      const updated = await api.updateLead(leadId, { status });
+      setLeads((prev) => prev.map((lead) => (lead.id === leadId ? updated : lead)));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const updateDidBuy = async (lead: Lead, didBuy: boolean) => {
+    try {
+      const updated = await api.updateLead(lead.id, { didBuy });
+      setLeads((prev) => prev.map((row) => (row.id === lead.id ? updated : row)));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const removeLead = async (leadId: string) => {
+    try {
+      await api.deleteLead(leadId);
+      setLeads((prev) => prev.filter((lead) => lead.id !== leadId));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle>{t("Leads", "לידים")}</CardTitle>
+          <CardDescription>
+            {t(
+              "Manage customer leads, pipeline status, interest, and close outcomes.",
+              "ניהול לידים, סטטוס פייפליין, תחומי עניין ותוצאות סגירה.",
+            )}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-3 md:grid-cols-4">
+            <div className="space-y-1">
+              <Label>{t("Search", "חיפוש")}</Label>
+              <Input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder={t("Name / phone", "שם / טלפון")}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>{t("Status", "סטטוס")}</Label>
+              <select
+                value={statusFilter}
+                onChange={(event) => setStatusFilter(event.target.value as LeadStatus | "all")}
+                className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+              >
+                <option value="all">{t("All", "הכל")}</option>
+                {LEAD_STATUSES.map((status) => (
+                  <option key={status} value={status}>
+                    {status}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="md:col-span-2 flex items-end">
+              <Button type="button" variant="outline" onClick={() => void loadData()}>
+                {t("Apply filters", "החל מסננים")}
+              </Button>
+            </div>
+          </div>
+
+          <div className="rounded-lg border p-4">
+            <div className="mb-3 flex items-center gap-2 text-sm font-medium">
+              <Plus className="size-4" />
+              {t("Add new lead", "הוספת ליד חדש")}
+            </div>
+            <div className="grid gap-3 md:grid-cols-5">
+              <Input
+                value={newLead.fullName}
+                onChange={(event) =>
+                  setNewLead((prev) => ({ ...prev, fullName: event.target.value }))
+                }
+                placeholder={t("Full name", "שם מלא")}
+              />
+              <Input
+                value={newLead.phoneNumber}
+                onChange={(event) =>
+                  setNewLead((prev) => ({ ...prev, phoneNumber: event.target.value }))
+                }
+                placeholder={t("Phone number", "מספר טלפון")}
+              />
+              <select
+                value={newLead.status}
+                onChange={(event) =>
+                  setNewLead((prev) => ({ ...prev, status: event.target.value as LeadStatus }))
+                }
+                className="h-9 rounded-md border border-input bg-transparent px-3 text-sm"
+              >
+                {LEAD_STATUSES.map((status) => (
+                  <option key={status} value={status}>
+                    {status}
+                  </option>
+                ))}
+              </select>
+              <Input
+                value={newLead.notes}
+                onChange={(event) =>
+                  setNewLead((prev) => ({ ...prev, notes: event.target.value }))
+                }
+                placeholder={t("Quick note", "הערה קצרה")}
+              />
+              <Button type="button" onClick={createLead} disabled={saving}>
+                {saving ? <Loader2 className="size-4 animate-spin" /> : null}
+                {t("Create lead", "צור ליד")}
+              </Button>
+            </div>
+            <div className="mt-3 space-y-1">
+              <Label>{t("Interested products", "מוצרים מעניינים")}</Label>
+              <select
+                multiple
+                value={newLead.productIds}
+                onChange={(event) => {
+                  const selected = Array.from(event.target.selectedOptions).map(
+                    (option) => option.value,
+                  );
+                  setNewLead((prev) => ({ ...prev, productIds: selected }));
+                }}
+                className="min-h-24 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm"
+              >
+                {products.map((product) => (
+                  <option key={product.id} value={product.id}>
+                    {product.nameEn || product.nameHe || product.stableKey}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {error ? (
+            <p className="rounded-lg border border-red-400 bg-red-50 p-3 text-sm text-red-700">
+              {error}
+            </p>
+          ) : null}
+
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{t("Name", "שם")}</TableHead>
+                <TableHead>{t("Phone", "טלפון")}</TableHead>
+                <TableHead>{t("Status", "סטטוס")}</TableHead>
+                <TableHead>{t("Interested in", "מתעניין ב")}</TableHead>
+                <TableHead>{t("Bought?", "נסגר?")}</TableHead>
+                <TableHead>{t("Last message", "הודעה אחרונה")}</TableHead>
+                <TableHead>{t("Last summary", "סיכום שיחה")}</TableHead>
+                <TableHead>{t("Actions", "פעולות")}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {loading ? (
+                <TableRow>
+                  <TableCell colSpan={8} className="text-center text-muted-foreground">
+                    <Loader2 className="mx-auto size-4 animate-spin" />
+                  </TableCell>
+                </TableRow>
+              ) : leads.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={8} className="text-center text-muted-foreground">
+                    {t("No leads yet.", "אין לידים עדיין.")}
+                  </TableCell>
+                </TableRow>
+              ) : (
+                leads.map((lead) => (
+                  <TableRow key={lead.id}>
+                    <TableCell className="font-medium">{lead.fullName}</TableCell>
+                    <TableCell>{lead.phoneNumber}</TableCell>
+                    <TableCell>
+                      <select
+                        value={lead.status}
+                        onChange={(event) =>
+                          void updateStatus(lead.id, event.target.value as LeadStatus)
+                        }
+                        className="h-8 rounded-md border border-input bg-transparent px-2 text-xs"
+                      >
+                        {LEAD_STATUSES.map((status) => (
+                          <option key={status} value={status}>
+                            {status}
+                          </option>
+                        ))}
+                      </select>
+                    </TableCell>
+                    <TableCell className="max-w-56 whitespace-normal">
+                      {lead.productIds.length ? (
+                        <div className="flex flex-wrap gap-1">
+                          {lead.productIds.map((id) => (
+                            <Badge key={id} variant="outline">
+                              {productNameById.get(id) ?? id.slice(0, 8)}
+                            </Badge>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <input
+                        type="checkbox"
+                        checked={lead.didBuy}
+                        onChange={(event) => void updateDidBuy(lead, event.target.checked)}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      {lead.lastMessageSentAt
+                        ? new Date(lead.lastMessageSentAt).toLocaleString()
+                        : "—"}
+                    </TableCell>
+                    <TableCell className="max-w-80 whitespace-normal text-xs text-muted-foreground">
+                      {lead.lastConversationSummary || "—"}
+                    </TableCell>
+                    <TableCell>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => void removeLead(lead.id)}
+                      >
+                        {t("Delete", "מחיקה")}
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
