@@ -279,7 +279,7 @@ function CatalogDialog({
 
       <DialogContent
         showCloseButton
-        className="flex h-[96vh] w-[96vw] max-w-[96vw] flex-col gap-0 overflow-hidden p-0"
+        className="flex h-[96vh] w-[96vw] max-w-[96vw] flex-col gap-0 overflow-hidden p-0 sm:max-w-[96vw]"
       >
         <DialogHeader className="flex-none border-b px-6 py-4">
           <DialogTitle className="flex items-center gap-2">
@@ -297,7 +297,7 @@ function CatalogDialog({
               {t("No products yet.", "אין מוצרים עדיין.")}
             </p>
           ) : (
-            <div className="grid grid-cols-2 gap-6 sm:grid-cols-3">
+            <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {rows.map((row) => {
                 const name = displayName(row);
                 const isEditing = editingId === row.id;
@@ -341,25 +341,68 @@ function CatalogDialog({
                     </div>
 
                     {/* Info / edit area */}
-                    <div className="p-3">
+                    <div className="p-4">
                       {!isEditing ? (
                         /* View mode */
-                        <div className="space-y-1">
-                          <p className="truncate text-sm font-semibold leading-snug" title={name}>
-                            {name}
-                          </p>
-                          <div className="flex items-center justify-between gap-2">
-                            {row.category ? (
-                              <span className="truncate text-xs text-muted-foreground">{row.category}</span>
-                            ) : (
-                              <span className="text-xs text-muted-foreground/40">—</span>
-                            )}
+                        <div className="space-y-2.5">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="truncate text-base font-semibold leading-snug" title={name}>
+                                {name}
+                              </p>
+                              {row.nameHe && row.nameEn && row.nameHe !== row.nameEn ? (
+                                <p className="truncate text-sm text-muted-foreground" title={row.nameHe}>
+                                  {row.nameHe}
+                                </p>
+                              ) : null}
+                            </div>
                             {row.price > 0 ? (
-                              <span className="shrink-0 rounded-full bg-brand/10 px-2 py-0.5 text-xs font-medium text-brand">
+                              <span className="shrink-0 rounded-full bg-brand/10 px-2.5 py-1 text-sm font-semibold text-brand">
                                 ₪{row.price.toLocaleString()}
                               </span>
                             ) : null}
                           </div>
+
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {row.category ? (
+                              <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
+                                {row.category}
+                              </span>
+                            ) : null}
+                            <span
+                              className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                                row.inStock
+                                  ? "bg-emerald-100 text-emerald-700"
+                                  : "bg-red-100 text-red-700"
+                              }`}
+                            >
+                              {row.inStock ? t("In stock", "במלאי") : t("Out of stock", "אזל")}
+                            </span>
+                          </div>
+
+                          {(row.colors || row.materials || row.style) && (
+                            <dl className="space-y-1 text-xs text-muted-foreground">
+                              {row.colors ? (
+                                <div className="flex gap-1.5">
+                                  <dt className="font-medium text-foreground/70">{t("Colors", "צבעים")}:</dt>
+                                  <dd className="truncate" title={row.colors}>{row.colors}</dd>
+                                </div>
+                              ) : null}
+                              {row.materials ? (
+                                <div className="flex gap-1.5">
+                                  <dt className="font-medium text-foreground/70">{t("Materials", "חומרים")}:</dt>
+                                  <dd className="truncate" title={row.materials}>{row.materials}</dd>
+                                </div>
+                              ) : null}
+                              {row.style ? (
+                                <div className="flex gap-1.5">
+                                  <dt className="font-medium text-foreground/70">{t("Style", "סגנון")}:</dt>
+                                  <dd className="truncate" title={row.style}>{row.style}</dd>
+                                </div>
+                              ) : null}
+                            </dl>
+                          )}
+
                           {!hasImage && (
                             <Label
                               className={`mt-2 flex cursor-pointer items-center gap-1.5 rounded-md border border-dashed px-2.5 py-2 text-xs text-muted-foreground hover:bg-accent ${rowUploadingId === row.id ? "pointer-events-none opacity-60" : ""}`}
