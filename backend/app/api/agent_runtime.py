@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import re
+from contextlib import nullcontext
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -25,7 +26,7 @@ from app.api.schemas import (
 )
 from app.core.db import get_session
 from app.core.models import get_model
-from app.core.observability import observe
+from app.core.observability import get_langfuse, observe
 from app.core.schema import Agent, BuildRun, Conversation, Message
 from app.intake.queue import get_redis_pool
 from app.runtime.context import TurnContext
@@ -325,6 +326,21 @@ async def _generate_setup_assistant_reply(
         formatted_history.append({"role": role, "content": row.content or ""})
     formatted_history.append({"role": "user", "content": user_text})
 
+    lf = get_langfuse()
+    obs_ctx = (
+        lf.start_as_current_observation(
+            name="setup-assistant-llm",
+            as_type="generation",
+            model=model_cfg.name,
+            model_parameters={
+                "temperature": model_cfg.temperature or 0.3,
+                "max_tokens": model_cfg.max_tokens or 1024,
+            },
+        )
+        if lf is not None
+        else nullcontext()
+    )
+
     def _call():
         client = _get_anthropic_client()
         return client.messages.create(
@@ -335,7 +351,18 @@ async def _generate_setup_assistant_reply(
             messages=formatted_history,
         )
 
-    response = await asyncio.to_thread(_call)
+    with obs_ctx:
+        response = await asyncio.to_thread(_call)
+        if lf is not None:
+            try:
+                lf.update_current_generation(
+                    usage_details={
+                        "input": response.usage.input_tokens,
+                        "output": response.usage.output_tokens,
+                    }
+                )
+            except Exception:  # noqa: BLE001
+                pass
     chunks: list[str] = []
     for block in response.content:
         if getattr(block, "type", None) == "text" and getattr(block, "text", None):

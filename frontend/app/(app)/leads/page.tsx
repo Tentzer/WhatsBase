@@ -25,7 +25,17 @@ const LEAD_STATUSES: LeadStatus[] = [
   "qualified",
   "not_interested",
   "success",
+  "awaiting_owner",
 ];
+
+const LEAD_STATUS_LABELS: Record<LeadStatus, [string, string]> = {
+  pending: ["Pending", "ממתין"],
+  contacted: ["Contacted", "נוצר קשר"],
+  qualified: ["Qualified", "מוסמך"],
+  not_interested: ["Not interested", "לא מעוניין"],
+  success: ["Success", "סגירה"],
+  awaiting_owner: ["Warm — ready for you", "ממתין לטיפול 🔥"],
+};
 
 export default function LeadsPage() {
   const { t } = useLocale();
@@ -64,6 +74,17 @@ export default function LeadsPage() {
         ]),
       ),
     [products],
+  );
+
+  // Sort awaiting_owner leads to the top so the owner sees warm leads first.
+  const sortedLeads = useMemo(
+    () =>
+      [...leads].sort((a, b) => {
+        const aWarm = a.status === "awaiting_owner" ? 0 : 1;
+        const bWarm = b.status === "awaiting_owner" ? 0 : 1;
+        return aWarm - bWarm;
+      }),
+    [leads],
   );
 
   const loadData = async () => {
@@ -242,7 +263,7 @@ export default function LeadsPage() {
                 <option value="all">{t("All", "הכל")}</option>
                 {LEAD_STATUSES.map((status) => (
                   <option key={status} value={status}>
-                    {status}
+                    {t(...LEAD_STATUS_LABELS[status])}
                   </option>
                 ))}
               </select>
@@ -353,7 +374,7 @@ export default function LeadsPage() {
               >
                 {LEAD_STATUSES.map((status) => (
                   <option key={status} value={status}>
-                    {status}
+                    {t(...LEAD_STATUS_LABELS[status])}
                   </option>
                 ))}
               </select>
@@ -457,8 +478,15 @@ export default function LeadsPage() {
                   </TableCell>
                 </TableRow>
               ) : (
-                leads.map((lead) => (
-                  <TableRow key={lead.id}>
+                sortedLeads.map((lead) => (
+                  <TableRow
+                    key={lead.id}
+                    className={
+                      lead.status === "awaiting_owner"
+                        ? "bg-amber-50/60 dark:bg-amber-950/20 ring-1 ring-inset ring-amber-300/50"
+                        : undefined
+                    }
+                  >
                     <TableCell className="font-medium">{lead.fullName}</TableCell>
                     <TableCell>{lead.phoneNumber}</TableCell>
                     <TableCell>
@@ -467,11 +495,16 @@ export default function LeadsPage() {
                         onChange={(event) =>
                           void updateStatus(lead.id, event.target.value as LeadStatus)
                         }
-                        className="h-8 rounded-md border border-input bg-background text-foreground px-2 text-xs"
+                        className={cn(
+                          "h-8 rounded-md border px-2 text-xs",
+                          lead.status === "awaiting_owner"
+                            ? "border-amber-400 bg-amber-50 text-amber-800 font-medium dark:bg-amber-950/30 dark:text-amber-300"
+                            : "border-input bg-background text-foreground",
+                        )}
                       >
                         {LEAD_STATUSES.map((status) => (
                           <option key={status} value={status}>
-                            {status}
+                            {t(...LEAD_STATUS_LABELS[status])}
                           </option>
                         ))}
                       </select>

@@ -205,3 +205,72 @@ async def test_supported_price_passes(monkeypatch):
         tenant_id="t1", system_prompt="sp", history=[], user_text="how much?", ctx=ctx
     )
     assert res.reply_text == "The white sofa is ₪4,990."
+
+
+# --- agent_type: lead_qualification price guardrail --------------------------
+@pytest.mark.asyncio
+async def test_lead_qual_any_price_blocked(monkeypatch):
+    """lead_qualification agent: ANY currency-adjacent price in reply → fallback."""
+    call = _script([FakeResp([TextBlock("Our program is ₪500 per month.")])])
+    monkeypatch.setattr(conversation, "_call_model", call)
+    ctx = TurnContext(tenant_id="t1")
+    # Even if the price is in tool_prices it must be blocked for lead_qual tenants.
+    ctx.tool_prices.add(500.0)
+    res = await conversation.run_turn(
+        tenant_id="t1",
+        system_prompt="sp",
+        history=[],
+        user_text="how much does it cost?",
+        ctx=ctx,
+        agent_type="lead_qualification",
+    )
+    assert "500" not in res.reply_text
+    assert res.reply_text == guardrails.fallback_reply("en")
+
+
+@pytest.mark.asyncio
+async def test_lead_qual_no_price_passes_through(monkeypatch):
+    """lead_qualification agent: reply with no price passes through unchanged."""
+    call = _script([FakeResp([TextBlock("Tell me more about what you're looking for.")])])
+    monkeypatch.setattr(conversation, "_call_model", call)
+    ctx = TurnContext(tenant_id="t1")
+    res = await conversation.run_turn(
+        tenant_id="t1",
+        system_prompt="sp",
+        history=[],
+        user_text="hi",
+        ctx=ctx,
+        agent_type="lead_qualification",
+    )
+    assert res.reply_text == "Tell me more about what you're looking for."
+
+
+@pytest.mark.asyncio
+async def test_catalog_sales_tool_backed_price_not_blocked_by_lead_qual_path(monkeypatch):
+    """catalog_sales (default) agent: tool-backed price still passes through normally."""
+    call = _script([FakeResp([TextBlock("The sofa is ₪4,990.")])])
+    monkeypatch.setattr(conversation, "_call_model", call)
+    ctx = TurnContext(tenant_id="t1")
+    ctx.tool_prices.add(4990.0)
+    res = await conversation.run_turn(
+        tenant_id="t1",
+        system_prompt="sp",
+        history=[],
+        user_text="price?",
+        ctx=ctx,
+        agent_type="catalog_sales",
+    )
+    assert res.reply_text == "The sofa is ₪4,990."
+
+
+@pytest.mark.asyncio
+async def test_agent_type_defaults_to_catalog_sales(monkeypatch):
+    """Omitting agent_type behaves identically to catalog_sales — no regression."""
+    call = _script([FakeResp([TextBlock("The sofa is ₪4,990.")])])
+    monkeypatch.setattr(conversation, "_call_model", call)
+    ctx = TurnContext(tenant_id="t1")
+    ctx.tool_prices.add(4990.0)
+    res = await conversation.run_turn(
+        tenant_id="t1", system_prompt="sp", history=[], user_text="price?", ctx=ctx
+    )
+    assert res.reply_text == "The sofa is ₪4,990."

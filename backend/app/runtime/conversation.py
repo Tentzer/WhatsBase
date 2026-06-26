@@ -10,10 +10,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from contextlib import nullcontext
 from datetime import datetime, timezone
 
 from app.core.models import ModelConfig, get_model
-from app.core.observability import get_current_trace_id, observe, update_trace
+from app.core.observability import get_current_trace_id, get_langfuse, observe, update_trace
 from app.runtime import guardrails
 from app.runtime import tools as runtime_tools
 from app.runtime.context import TurnContext
@@ -30,7 +31,7 @@ def _now_str() -> str:
 
 
 def _format_history(history) -> list[dict]:
-    """Map stored Message rows → Anthropic messages, last N, starting on a user
+    """Map stored Message rows -> Anthropic messages, last N, starting on a user
     turn (the API requires the first message to be a user message)."""
     msgs: list[dict] = []
     for row in list(history)[-_HISTORY_WINDOW:]:
@@ -62,6 +63,20 @@ def _get_anthropic_client():
 
 async def _call_model(model_cfg: ModelConfig, system: str, messages: list[dict]):
     """One Anthropic Messages API call. Patched in unit tests."""
+    lf = get_langfuse()
+    obs_ctx = (
+        lf.start_as_current_observation(
+            name="conversation-llm",
+            as_type="generation",
+            model=model_cfg.name,
+            model_parameters={
+                "temperature": model_cfg.temperature if model_cfg.temperature is not None else 0.3,
+                "max_tokens": model_cfg.max_tokens or 1024,
+            },
+        )
+        if lf is not None
+        else nullcontext()
+    )
 
     def _call():
         client = _get_anthropic_client()
@@ -74,7 +89,19 @@ async def _call_model(model_cfg: ModelConfig, system: str, messages: list[dict])
             messages=messages,
         )
 
-    return await asyncio.to_thread(_call)
+    with obs_ctx:
+        resp = await asyncio.to_thread(_call)
+        if lf is not None:
+            try:
+                lf.update_current_generation(
+                    usage_details={
+                        "input": resp.usage.input_tokens,
+                        "output": resp.usage.output_tokens,
+                    }
+                )
+            except Exception:  # noqa: BLE001
+                pass
+    return resp
 
 
 @observe(name="runtime.run_turn")
@@ -87,6 +114,7 @@ async def run_turn(
     ctx: TurnContext,
     model_role: str = "conversation",
     lead_summary: str | None = None,
+    agent_type: str = "catalog_sales",
 ) -> TurnResult:
     """Run one agent turn: native tool-use loop, max iterations, then a graceful
     language-mirrored fallback. Returns the reply text + any cards + handoff."""
@@ -107,7 +135,9 @@ async def run_turn(
         else ""
     )
     full_system = (
-        f"{system_prompt}\n\n{guardrails.system_preamble(lang, _now_str())}{lead_memory_block}"
+        f"{system_prompt}\n\n"
+        f"{guardrails.system_preamble(lang, _now_str(), agent_type)}"
+        f"{lead_memory_block}"
     )
     messages = _format_history(history)
     messages.append({"role": "user", "content": user_text})
@@ -129,7 +159,7 @@ async def run_turn(
             tool_input = getattr(tool_use, "input", None) or {}
             try:
                 result = await runtime_tools.dispatch(tool_use.name, tool_input, ctx)
-            except Exception as exc:  # noqa: BLE001 — a tool failing must not crash the turn
+            except Exception as exc:  # noqa: BLE001 -- a tool failing must not crash the turn
                 logger.exception("tool %s failed", getattr(tool_use, "name", "?"))
                 result = f"Tool error: {exc}"
             tool_results.append(
@@ -138,21 +168,36 @@ async def run_turn(
         messages.append({"role": "user", "content": tool_results})
 
     if not reply_text:
-        # A card-only turn still succeeded — use a neutral line, not the apology.
+        # A card-only turn still succeeded -- use a neutral line, not the apology.
         reply_text = (
             guardrails.cards_only_reply(lang, ctx.cards) if ctx.cards
             else guardrails.fallback_reply(lang)
         )
 
-    # Price honesty (rules 2/3): a currency-adjacent figure not backed by a tool
-    # result means the model invented it — replace with a safe fallback and log.
-    invented = guardrails.unsupported_price_claim(reply_text, ctx.tool_prices)
-    if invented is not None:
-        logger.warning(
-            "guardrail blocked unsupported price %.2f tenant=%s", invented, tenant_id
-        )
-        update_trace(guardrail_block="unsupported_price")
-        reply_text = guardrails.fallback_reply(lang)
+    # Price guardrail -- two branches depending on agent_type.
+    if agent_type == "lead_qualification":
+        # Lead-qual agents must NEVER mention any price.  Any currency-adjacent
+        # number in the reply means the model violated the hard rule -- replace.
+        if guardrails.any_price_mention(reply_text):
+            logger.warning(
+                "guardrail blocked price mention in lead_qual turn tenant=%s", tenant_id
+            )
+            update_trace(guardrail_block="lead_qual_price_mention")
+            reply_text = guardrails.fallback_reply(lang)
+    else:
+        # catalog_sales: only block prices that are NOT backed by a tool result
+        # (the model invented them).  Tool-backed prices are always allowed.
+        invented = guardrails.unsupported_price_claim(reply_text, ctx.tool_prices)
+        if invented is not None:
+            logger.warning(
+                "guardrail blocked unsupported price %.2f tenant=%s", invented, tenant_id
+            )
+            update_trace(guardrail_block="unsupported_price")
+            reply_text = guardrails.fallback_reply(lang)
+
+    # Emoji guardrail -- mechanical backstop for lead_qualification.
+    if agent_type == "lead_qualification":
+        reply_text = guardrails.strip_emojis(reply_text)
 
     return TurnResult(
         reply_text=reply_text,

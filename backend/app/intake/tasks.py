@@ -384,6 +384,7 @@ async def run_agent_turn(ctx: dict, instance_id: str, chat_id: str, token: int) 
             chat_id=chat_id,
             enqueue_outgoing=_enqueue_outgoing,
         )
+        agent_type = getattr(agent, "agent_type", "catalog_sales")
         result = await run_turn(
             tenant_id=tenant_id,
             system_prompt=agent.system_prompt,
@@ -395,6 +396,7 @@ async def run_agent_turn(ctx: dict, instance_id: str, chat_id: str, token: int) 
                 if lead_for_context is not None
                 else None
             ),
+            agent_type=agent_type,
         )
 
         # Persist outbound: product cards (images, already enqueued by the tool)
@@ -429,6 +431,30 @@ async def run_agent_turn(ctx: dict, instance_id: str, chat_id: str, token: int) 
             result=result,
             now=now,
         )
+
+        # For lead_qualification tenants: when the agent signals handoff, mark
+        # the lead as awaiting_owner so the dashboard can surface it.
+        # Tenant-scoped; never demotes a lead already at success/not_interested.
+        # No outbound notification yet — the owner acts from the dashboard.
+        if result.handoff and agent_type == "lead_qualification":
+            nominated_lead = (
+                await session.execute(
+                    select(Lead).where(
+                        Lead.tenant_id == tenant_id,
+                        Lead.phone_number == normalized_phone,
+                    )
+                )
+            ).scalar_one_or_none()
+            if nominated_lead is not None and nominated_lead.status not in (
+                "success", "not_interested", "awaiting_owner"
+            ):
+                nominated_lead.status = "awaiting_owner"
+                logger.info(
+                    "lead nominated for owner review tenant=%s lead=%s",
+                    tenant_id,
+                    nominated_lead.id,
+                )
+
         await session.commit()
 
         summary_token = await redis.incr(_summary_token_key(instance_id, chat_id))

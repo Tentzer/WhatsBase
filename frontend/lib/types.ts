@@ -62,7 +62,8 @@ export type LeadStatus =
   | "contacted"
   | "qualified"
   | "not_interested"
-  | "success";
+  | "success"
+  | "awaiting_owner";
 
 export interface Lead {
   id: string;

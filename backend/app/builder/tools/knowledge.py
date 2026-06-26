@@ -9,7 +9,7 @@ from sqlalchemy import delete, select, text, update
 
 from app.builder.business_info_loader import ensure_business_info_loaded, merge_business_info_items
 from app.builder.context import BuildContext, BusinessInfoItem
-from app.builder.prompts import render_conversation_prompt
+from app.builder.prompts import render_conversation_prompt, render_lead_qual_prompt
 from app.core.schema import Agent, BusinessInfo, Embedding, Product, Tenant
 
 logger = logging.getLogger(__name__)
@@ -24,8 +24,17 @@ async def add_business_info(ctx: BuildContext, topic: str, content_he: str, cont
     return json.dumps({"status": "queued", "topic": topic})
 
 
-async def generate_system_prompt(ctx: BuildContext, draft: str) -> str:
-    """Compose and persist the tenant's system prompt from the build draft."""
+async def generate_system_prompt(
+    ctx: BuildContext,
+    draft: str,
+    agent_type: str = "catalog_sales",
+) -> str:
+    """Compose and persist the tenant's system prompt from the build draft.
+
+    ``agent_type`` controls which template is used:
+    - ``"catalog_sales"`` (default): product/retail bot with catalog + price tools.
+    - ``"lead_qualification"``: service/intake bot — no catalog slots, no price tools.
+    """
     session = ctx.session
 
     await ensure_business_info_loaded(ctx)
@@ -45,8 +54,14 @@ async def generate_system_prompt(ctx: BuildContext, draft: str) -> str:
     # Bilingual business info: feed BOTH languages so the agent answers
     # hours/location/policy idiomatically in either. Per-field fallback when
     # only one language is present.
+    # voice_examples is extracted separately and excluded from business_summary
+    # — it anchors the tone in the prompt template, not in the info block.
+    voice_examples = ""
     biz_lines = []
     for item in ctx.business_info_items:
+        if item.topic == "voice_examples":
+            voice_examples = (item.content_he or item.content_en or "").strip()
+            continue  # not part of business_summary
         en = (item.content_en or "").strip()
         he = (item.content_he or "").strip()
         biz_lines.append(f"  [{item.topic}]")
@@ -79,13 +94,21 @@ async def generate_system_prompt(ctx: BuildContext, draft: str) -> str:
     def _esc(s: str) -> str:
         return s.replace("{", "{{").replace("}", "}}")
 
-    system_prompt = render_conversation_prompt(
-        business_name=_esc(business_name),
-        business_description=_esc(business_description),
-        business_summary=_esc(business_summary),
-        catalog_summary=_esc(catalog_summary),
-        catalog_examples=_esc(catalog_examples),
-    )
+    if agent_type == "lead_qualification":
+        system_prompt = render_lead_qual_prompt(
+            business_name=_esc(business_name),
+            business_description=_esc(business_description),
+            business_summary=_esc(business_summary),
+            voice_examples=_esc(voice_examples),
+        )
+    else:
+        system_prompt = render_conversation_prompt(
+            business_name=_esc(business_name),
+            business_description=_esc(business_description),
+            business_summary=_esc(business_summary),
+            catalog_summary=_esc(catalog_summary),
+            catalog_examples=_esc(catalog_examples),
+        )
 
     if ctx.dry_run:
         logger.info("[dry-run] would write system_prompt (%d chars) for tenant=%s",
@@ -101,13 +124,14 @@ async def generate_system_prompt(ctx: BuildContext, draft: str) -> str:
         await session.execute(
             update(Agent)
             .where(Agent.tenant_id == ctx.tenant_id)
-            .values(system_prompt=system_prompt, status="building")
+            .values(system_prompt=system_prompt, agent_type=agent_type, status="building")
         )
     else:
         session.add(
             Agent(
                 tenant_id=ctx.tenant_id,
                 system_prompt=system_prompt,
+                agent_type=agent_type,
                 status="building",
             )
         )
@@ -195,8 +219,9 @@ async def index_embeddings(ctx: BuildContext) -> str:
 
     # --- Embed business_info as staging ---
     for bi in business_infos:
+        if bi.topic == "voice_examples":
+            continue  # tone anchor only; not a searchable content item
         content = _bi_embedding_text(bi)
-        vector = await embed_query(content)
 
         embedding_meta = {"topic": bi.topic}
 

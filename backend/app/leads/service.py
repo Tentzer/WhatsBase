@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from contextlib import nullcontext
 from datetime import datetime
 from typing import Iterable, Literal, Sequence
 
@@ -13,7 +14,7 @@ from sqlalchemy.orm import selectinload
 
 from app.api.schemas import LeadAutomationEventResponse, LeadResponse, LeadStatus
 from app.core.models import get_model
-from app.core.observability import observe
+from app.core.observability import get_langfuse, observe
 from app.core.schema import Lead, LeadAutomationEvent, LeadProduct, Message, Product
 
 logger = logging.getLogger(__name__)
@@ -165,6 +166,17 @@ async def generate_lead_summary(
         f"transcript:\n{transcript}"
     )
     model_cfg = get_model("setup_assistant")
+    lf = get_langfuse()
+    obs_ctx = (
+        lf.start_as_current_observation(
+            name="leads.summarize-llm",
+            as_type="generation",
+            model=model_cfg.name,
+            model_parameters={"temperature": 0.1, "max_tokens": 500},
+        )
+        if lf is not None
+        else nullcontext()
+    )
 
     def _call():
         client = _get_anthropic_client()
@@ -177,7 +189,18 @@ async def generate_lead_summary(
         )
 
     try:
-        resp = await asyncio.to_thread(_call)
+        with obs_ctx:
+            resp = await asyncio.to_thread(_call)
+            if lf is not None:
+                try:
+                    lf.update_current_generation(
+                        usage_details={
+                            "input": resp.usage.input_tokens,
+                            "output": resp.usage.output_tokens,
+                        }
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
         text = _extract_text(resp)
         if text:
             return text
@@ -244,6 +267,17 @@ async def judge_reengagement_candidate(
         f"recent_transcript:\n{transcript or 'none'}"
     )
     model_cfg = get_model("setup_assistant")
+    lf = get_langfuse()
+    obs_ctx = (
+        lf.start_as_current_observation(
+            name="leads.reengagement-judge-llm",
+            as_type="generation",
+            model=model_cfg.name,
+            model_parameters={"temperature": 0.0, "max_tokens": 350},
+        )
+        if lf is not None
+        else nullcontext()
+    )
 
     def _call():
         client = _get_anthropic_client()
@@ -256,7 +290,18 @@ async def judge_reengagement_candidate(
         )
 
     try:
-        resp = await asyncio.to_thread(_call)
+        with obs_ctx:
+            resp = await asyncio.to_thread(_call)
+            if lf is not None:
+                try:
+                    lf.update_current_generation(
+                        usage_details={
+                            "input": resp.usage.input_tokens,
+                            "output": resp.usage.output_tokens,
+                        }
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
         payload = _extract_json_block(_extract_text(resp))
         if payload:
             return LeadReengagementJudgeResult.model_validate(payload)

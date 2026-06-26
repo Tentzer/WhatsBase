@@ -137,6 +137,14 @@ class FakeResult:
     def scalar_one_or_none(self):
         return self._val
 
+    def scalars(self):
+        return self
+
+    def all(self):
+        # Used by queries that return multiple rows (e.g. validate_tenant_products).
+        # Return empty list — no products/rows exist in the fake session.
+        return []
+
 
 class FakeSession:
     def __init__(self, instance):
@@ -150,8 +158,18 @@ class FakeSession:
     async def __aexit__(self, *exc):
         return False
 
-    async def execute(self, *a, **k):
-        return FakeResult(self._instance)
+    async def execute(self, stmt, *a, **k):
+        # Dispatch by which table the statement targets so the two-query flow
+        # in run_agent_turn is modelled correctly:
+        #   1. select(WhatsAppInstance) → return the fake instance
+        #   2. select(Lead)             → return None (no pre-existing lead)
+        if "whatsapp_instances" in str(stmt):
+            return FakeResult(self._instance)
+        return FakeResult(None)
+
+    async def get(self, model_class, pk):
+        # Called by _upsert_lead_after_turn to fetch the Tenant for business_name.
+        return SimpleNamespace(name="Test Business")
 
     def add(self, obj):
         self.added.append(obj)
@@ -226,13 +244,16 @@ async def test_run_agent_turn_persists_and_sends(monkeypatch):
 
     # Persisted: 1 inbound text + 1 outbound image card + 1 outbound text,
     # the outbound rows tagged with the trace id (the amendment: cards persisted too).
-    persisted = [(m.direction, m.type) for m in session.added]
+    # Filter to Message rows only — session.added also contains the new Lead row
+    # created by _upsert_lead_after_turn when no pre-existing lead is found.
+    messages = [m for m in session.added if hasattr(m, "direction")]
+    persisted = [(m.direction, m.type) for m in messages]
     assert persisted == [
         ("inbound", "text"),
         ("outbound", "image"),
         ("outbound", "text"),
     ]
-    outbound = [m for m in session.added if m.direction == "outbound"]
+    outbound = [m for m in messages if m.direction == "outbound"]
     assert all(m.agent_trace_id == "trace-1" for m in outbound)
     image_row = next(m for m in outbound if m.type == "image")
     assert image_row.media_url == "https://img/sofa.jpg"

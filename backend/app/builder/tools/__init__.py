@@ -63,11 +63,29 @@ TOOL_SCHEMAS = [
     },
     {
         "name": "generate_system_prompt",
-        "description": "Generate and persist the tenant's conversation agent system prompt from catalog and business info.",
+        "description": (
+            "Generate and persist the tenant's conversation agent system prompt. "
+            "Pass agent_type='lead_qualification' for service businesses that qualify "
+            "prospects (no product catalog, never discuss prices). "
+            "Omit or pass agent_type='catalog_sales' for product/retail businesses."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
-                "draft": {"type": "string", "description": "Brief outline of the business and catalog for the prompt"},
+                "draft": {
+                    "type": "string",
+                    "description": "Brief outline of the business and catalog for the prompt",
+                },
+                "agent_type": {
+                    "type": "string",
+                    "enum": ["catalog_sales", "lead_qualification"],
+                    "description": (
+                        "'catalog_sales' (default): product/retail bot — searches catalog, "
+                        "answers price questions. "
+                        "'lead_qualification': service/intake bot — qualifies prospects "
+                        "through conversation; never discusses prices or packages."
+                    ),
+                },
             },
             "required": ["draft"],
         },
@@ -113,7 +131,11 @@ async def dispatch(ctx: BuildContext, name: str, inputs: dict) -> str:
         )
     elif name == "generate_system_prompt":
         from app.builder.tools.knowledge import generate_system_prompt
-        return await generate_system_prompt(ctx, inputs.get("draft", ""))
+        return await generate_system_prompt(
+            ctx,
+            inputs.get("draft", ""),
+            agent_type=inputs.get("agent_type", "catalog_sales"),
+        )
     elif name == "index_embeddings":
         from app.builder.tools.knowledge import index_embeddings
         return await index_embeddings(ctx)

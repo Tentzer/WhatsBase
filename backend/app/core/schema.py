@@ -121,6 +121,10 @@ class Agent(TimestampMixin, Base):
     # building | live | failed
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="building")
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    # catalog_sales (default) | lead_qualification
+    agent_type: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default="catalog_sales"
+    )
     # Tenant controls for runtime behavior and lead automation.
     auto_reply_enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True
@@ -174,7 +178,7 @@ class Lead(TimestampMixin, Base):
     tenant_id: Mapped[str] = _tenant_fk()
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
     phone_number: Mapped[str] = mapped_column(String(32), nullable=False)
-    # pending | contacted | qualified | not_interested | success
+    # pending | contacted | qualified | not_interested | success | awaiting_owner
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
     did_buy: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     business_name: Mapped[str | None] = mapped_column(String(255))

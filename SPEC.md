@@ -61,7 +61,7 @@ SPEC.md          # this file — keep it updated as decisions change
 - `tenants` — business name, status, plan
 - `users` — Supabase auth users linked to a tenant
 - `whatsapp_instances` — tenant_id, green_api_instance_id, token (encrypted), phone, status, intake_mode
-- `agents` — tenant_id, generated system_prompt, tone, language_policy, rules (jsonb), escalation settings, status (building | live | failed), version
+- `agents` — tenant_id, generated system_prompt, tone, language_policy, rules (jsonb), escalation settings, status (building | live | failed), version, `agent_type` (catalog_sales | lead_qualification, default catalog_sales), `auto_reply_enabled`, `reengagement_enabled`
 - `products` — tenant_id, name_he, name_en, description_he, description_en, category, attributes (jsonb: colors, materials, style…), price, currency, in_stock, source (owner_input | builder_extracted)
 - `product_images` — product_id, storage_path, public_url, caption_he, caption_en
 - `embeddings` — tenant_id, ref_type (product | business_info), ref_id, content, vector `halfvec(3072)` (stored as half-precision so an HNSW index is buildable at the registry's native 3072 dims — the `vector` type caps HNSW at 2000; registry stays text-embedding-3-large @ 3072), HNSW index with `halfvec_cosine_ops`, plus a GIN index on a metadata jsonb column for hybrid filtering. A `status` column (staging | active) supports the atomic stage→swap rebuild.
@@ -112,6 +112,24 @@ Build ONLY:
 
 ### 7. Observability
 - Langfuse SDK initialized in `core/`; decorate every LLM call, every builder run (one trace per build), every conversation turn. Tag traces with tenant_id. Log token costs.
+
+### 8. Agent Types
+
+Two flavors of tenant agent are supported. The type is stored in `agents.agent_type` (String 32, non-null, default `"catalog_sales"`).
+
+#### `catalog_sales` (default)
+Product/retail businesses with a catalog. The Builder generates a `CONVERSATION_SYSTEM_TEMPLATE`-based prompt with catalog and price slots. The runtime arms the full tool suite (`search_products`, `get_business_info`, `send_product_cards`, `handoff_to_human`) and enforces the inventory-price guardrail: any currency-adjacent number not backed by a `search_products` result this turn is replaced with a fallback reply.
+
+#### `lead_qualification`
+Service businesses that qualify prospects through conversation — no product catalog. The Builder detects this type when calling `generate_system_prompt` with `agent_type="lead_qualification"` and renders `LEAD_QUALIFICATION_TEMPLATE` instead (no catalog/price slots). The runtime enforces a stricter guardrail: **any** currency-adjacent number in the reply is blocked, regardless of whether it came from a tool. A second guardrail text block (`RUNTIME_GUARDRAILS_LEADQUAL`) replaces the standard one in the per-turn system preamble.
+
+**Handoff nomination.** When a lead-qualification agent calls `handoff_to_human` and `TurnResult.handoff` is `True`, `run_agent_turn` sets `leads.status = "awaiting_owner"` (unless the lead is already `success` or `not_interested`). The dashboard surfaces `awaiting_owner` leads for the owner to act on. No outbound notification is sent at this stage.
+
+**Lead status values:** `pending | contacted | qualified | not_interested | success | awaiting_owner`
+
+**Invariant.** Guardrails live in both the prompt template (`builder/prompts.py`) and runtime code (`runtime/guardrails.py`). When either template changes, update both. This mirrors the existing Invariant #8 for catalog_sales.
+
+**Extending.** The `LEAD_QUALIFICATION_TEMPLATE` in `builder/prompts.py` is a placeholder skeleton. Replace the Stage 1–5 flow with business-specific content before production use. A `TODO` comment marks the block. The template slot signature is `(business_name, business_description, business_summary)` — no catalog or price slots.
 
 ## Environment variables (.env.example must list all)
 `ANTHROPIC_API_KEY, OPENAI_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_KEY, SUPABASE_ANON_KEY, DATABASE_URL, REDIS_URL, LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, LANGFUSE_HOST, INTAKE_MODE, APP_BASE_URL, TOKEN_ENCRYPTION_KEY, GREEN_API_INSTANCE_ID, GREEN_API_TOKEN, ALLOWED_TEST_NUMBERS`

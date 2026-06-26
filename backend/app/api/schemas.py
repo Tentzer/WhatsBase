@@ -83,6 +83,7 @@ LeadStatus = Literal[
     "qualified",
     "not_interested",
     "success",
+    "awaiting_owner",  # set by runtime when lead_qualification agent signals handoff
 ]
 
 

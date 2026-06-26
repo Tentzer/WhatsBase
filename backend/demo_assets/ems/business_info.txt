@@ -1,0 +1,36 @@
+; EMS כפר סבא — business_info seed file
+; Format: one record per section, topic: followed by HE: and EN: lines.
+; The builder reads this and calls add_business_info for each record.
+; NO prices, package names, session counts, results claims, or Instagram.
+
+topic: what_is_ems
+HE: EMS (Electrical Muscle Stimulation) הוא אימון אישי של כ-20 דקות בחליפה מיוחדת שמפעילה את השרירים בעזרת גירוי חשמלי עדין בזמן תרגול. האימון מתבצע אחד-על-אחד עם המאמן דוד, עובד את כל הגוף, ומתאים לכל רמת כושר. בסשן EMS מופעלים כ-90% מהשרירים בו-זמנית, לעומת 3-4 קבוצות שרירים באימון רגיל.
+EN: EMS (Electrical Muscle Stimulation) is a personal ~20-minute session using a special suit that activates muscles through gentle electrical impulses during exercise. Sessions are one-on-one with trainer David, work the entire body, and suit all fitness levels. An EMS session activates ~90% of muscles simultaneously, compared to 3-4 muscle groups in a regular workout.
+
+topic: location
+HE: הסטודיו נמצא ברחוב התע"ש 20, כפר סבא, בית הפעמון.
+EN: The studio is located at HaTa'ash 20, Kfar Saba, Beit HaPaamon.
+
+topic: contact
+HE: מספר הטלפון של הסטודיו (ברירת מחדל): 050-871-2322. מספר אישי של דוד (רק אם הלקוח ביקש במפורש): 054-996-2612. ניתן לקבוע אימון ניסיון בטלפון או דרך טופס באתר.
+EN: Studio phone (default): 050-871-2322. David's personal number (only if explicitly requested): 054-996-2612. Trial sessions can be booked by phone or via the website form.
+
+topic: hours
+HE: שעות פעילות: ימים א'–ה' 08:30–20:30. שישי–שבת סגור.
+EN: Opening hours: Sunday–Thursday 08:30–20:30. Friday–Saturday closed.
+
+topic: what_to_bring
+HE: אין צורך להביא כלום — הכול מסופק במקום. מגיעים, מתאמנים, וזהו.
+EN: No need to bring anything — everything is provided on site. Just come as you are.
+
+topic: vs_gym
+HE: בניגוד לחדר כושר רגיל, אימון EMS מפעיל כ-90% מהשרירים בו-זמנית תוך 20 דקות, ללא מאמץ על המפרקים. אין ציוד כבד. המאמן מלווה אישית לכל אורך האימון.
+EN: Unlike a regular gym, EMS activates ~90% of muscles simultaneously in 20 minutes, with no joint strain. No heavy equipment. The trainer guides you personally throughout every session.
+
+topic: suitability
+HE: מתאים למגוון רחב של אנשים, כולל כאלה שלא יכלו להתאמן בשיטות אחרות (בעיות גב, אחרי פציעה). ההתאמה תמיד נקבעת עם דוד. ניתן לשלב עם ספורט אחר.
+EN: Suits a wide range of people, including those who couldn't train with other methods (back issues, post-injury). Suitability is always decided together with David. Can be combined with other sports.
+
+topic: medical_safety
+HE: כל שאלה רפואית או אזכור של מצב גופני (קוצב לב, הריון, אפילפסיה, בעיות לב, פציעות) מטופלת ישירות ואישית על ידי דוד. הבוט לא נותן אישור ולא פוסל — לוקח פרטים ומעביר לדוד. ההחלטה הרפואית שייכת למאמן בלבד.
+EN: Any medical question or condition (pacemaker, pregnancy, epilepsy, heart conditions, injuries) is handled directly and personally by David. The bot never gives clearance and never rejects — it takes details and passes to David. The medical decision belongs to the trainer alone.
