@@ -7,9 +7,9 @@ export default async function PrivateLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   const supabase = await createClient();
   const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  if (!session) {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
     redirect("/login");
   }
 
