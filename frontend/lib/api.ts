@@ -8,6 +8,7 @@ import type {
   LeadAutomationEvent,
   LeadAutomationSettings,
   LeadCreatePayload,
+  LeadMessage,
   LeadStatus,
   MeResponse,
   ProductDraft,
@@ -41,6 +42,7 @@ interface ApiClient {
   setLeadProducts: (id: string, productIds: string[]) => Promise<Lead>;
   deleteLead: (id: string) => Promise<void>;
   getLeadAutomationEvents: (id: string, limit?: number) => Promise<LeadAutomationEvent[]>;
+  getLeadMessages: (leadId: string) => Promise<LeadMessage[]>;
   getLeadAutomationSettings: () => Promise<LeadAutomationSettings>;
   updateLeadAutomationSettings: (payload: {
     autoReplyEnabled?: boolean;
@@ -613,6 +615,26 @@ const realApi: ApiClient = {
       createdAt: row.created_at,
     }));
   },
+  getLeadMessages: async (leadId: string): Promise<LeadMessage[]> => {
+    const res = await requestJson<
+      Array<{
+        id: string;
+        direction: "inbound" | "outbound";
+        type: "text" | "image";
+        content: string | null;
+        media_url: string | null;
+        created_at: string;
+      }>
+    >(`/api/leads/${leadId}/messages`);
+    return res.map((row) => ({
+      id: row.id,
+      direction: row.direction,
+      type: row.type,
+      content: row.content,
+      mediaUrl: row.media_url,
+      createdAt: row.created_at,
+    }));
+  },
   getLeadAutomationSettings: async (): Promise<LeadAutomationSettings> => {
     const res = await requestJson<{
       auto_reply_enabled: boolean;
@@ -910,6 +932,7 @@ export const api: ApiClient = useMockApi
         autoReplyEnabled: payload.autoReplyEnabled ?? true,
         reengagementEnabled: payload.reengagementEnabled ?? false,
       }),
+      getLeadMessages: async (): Promise<LeadMessage[]> => [],
     } as ApiClient)
   : realApi;
 export { baseUrl };

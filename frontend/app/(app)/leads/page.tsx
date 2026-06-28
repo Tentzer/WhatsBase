@@ -1,13 +1,19 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { Check, Loader2, Plus, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Check, Loader2, MessageSquare, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { api } from "@/lib/api";
 import { useLocale } from "@/lib/locale";
 import { cn } from "@/lib/utils";
@@ -15,6 +21,7 @@ import type {
   Lead,
   LeadAutomationSettings,
   LeadCreatePayload,
+  LeadMessage,
   LeadStatus,
   ProductDraft,
 } from "@/lib/types";
@@ -55,6 +62,13 @@ export default function LeadsPage() {
     null,
   );
   const [newProductId, setNewProductId] = useState<string>("");
+
+  // Conversation dialog state
+  const [conversationLead, setConversationLead] = useState<Lead | null>(null);
+  const [messages, setMessages] = useState<LeadMessage[]>([]);
+  const [messagesLoading, setMessagesLoading] = useState(false);
+  const [messagesError, setMessagesError] = useState<string | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
   const [newLead, setNewLead] = useState<LeadCreatePayload>({
     fullName: "",
     phoneNumber: "",
@@ -133,6 +147,28 @@ export default function LeadsPage() {
     void loadAutomationSettings();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Scroll to the newest message whenever the messages list loads
+  useEffect(() => {
+    if (!messagesLoading && messages.length > 0) {
+      messagesEndRef.current?.scrollIntoView({ behavior: "instant" });
+    }
+  }, [messages, messagesLoading]);
+
+  const openConversation = async (lead: Lead) => {
+    setConversationLead(lead);
+    setMessages([]);
+    setMessagesError(null);
+    setMessagesLoading(true);
+    try {
+      const msgs = await api.getLeadMessages(lead.id);
+      setMessages(msgs);
+    } catch (err) {
+      setMessagesError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setMessagesLoading(false);
+    }
+  };
 
   const createLead = async () => {
     if (!newLead.fullName.trim() || !newLead.phoneNumber.trim()) {
@@ -564,14 +600,26 @@ export default function LeadsPage() {
                       {lead.lastConversationSummary || "—"}
                     </TableCell>
                     <TableCell>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => void removeLead(lead.id)}
-                      >
-                        {t("Delete", "מחיקה")}
-                      </Button>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="gap-1"
+                          onClick={() => void openConversation(lead)}
+                        >
+                          <MessageSquare className="size-3.5" />
+                          {t("Chat", "שיחה")}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => void removeLead(lead.id)}
+                        >
+                          {t("Delete", "מחיקה")}
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))
@@ -580,6 +628,87 @@ export default function LeadsPage() {
           </Table>
         </CardContent>
       </Card>
+
+      {/* Conversation dialog */}
+      <Dialog
+        open={conversationLead !== null}
+        onOpenChange={(open) => {
+          if (!open) setConversationLead(null);
+        }}
+      >
+        <DialogContent
+          showCloseButton
+          className="flex h-[80vh] w-full max-w-lg flex-col gap-0 overflow-hidden p-0 sm:max-w-lg"
+        >
+          <DialogHeader className="flex-none border-b px-4 py-3">
+            <DialogTitle className="flex items-center gap-2 text-sm">
+              <MessageSquare className="size-4" />
+              {conversationLead
+                ? t(
+                    `Chat — ${conversationLead.fullName}`,
+                    `שיחה — ${conversationLead.fullName}`,
+                  )
+                : t("Chat", "שיחה")}
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="flex-1 overflow-y-auto overscroll-contain p-4">
+            {messagesLoading ? (
+              <div className="flex h-full items-center justify-center">
+                <Loader2 className="size-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : messagesError ? (
+              <p className="rounded-lg border border-red-400 bg-red-50 p-3 text-sm text-red-700">
+                {messagesError}
+              </p>
+            ) : messages.length === 0 ? (
+              <div className="flex h-full flex-col items-center justify-center gap-2 text-muted-foreground">
+                <MessageSquare className="size-8 opacity-30" />
+                <p className="text-sm">{t("No conversation yet.", "אין שיחה עדיין.")}</p>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-3">
+                {messages.map((msg) => (
+                  <div
+                    key={msg.id}
+                    className={cn(
+                      "flex max-w-[78%] flex-col",
+                      msg.direction === "inbound" ? "self-start items-start" : "self-end items-end",
+                    )}
+                  >
+                    <div
+                      className={cn(
+                        "rounded-2xl px-3 py-2 text-sm",
+                        msg.direction === "inbound"
+                          ? "rounded-ss-sm bg-muted text-foreground"
+                          : "rounded-se-sm bg-primary text-primary-foreground",
+                      )}
+                      dir="auto"
+                    >
+                      {msg.type === "image" && msg.mediaUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={msg.mediaUrl}
+                          alt={t("Image", "תמונה")}
+                          className="max-w-full rounded-lg"
+                        />
+                      ) : (
+                        <span className="whitespace-pre-wrap break-words">
+                          {msg.content ?? ""}
+                        </span>
+                      )}
+                    </div>
+                    <span className="mt-0.5 text-[10px] text-muted-foreground">
+                      {new Date(msg.createdAt).toLocaleString()}
+                    </span>
+                  </div>
+                ))}
+                <div ref={messagesEndRef} />
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -115,3 +115,80 @@ async def test_judge_reengagement_candidate_hard_opt_out_short_circuit(monkeypat
     assert out.reason_code == "hard_opt_out"
     assert called["value"] is False
 
+# ── get_messages_for_lead ──────────────────────────────────────────────────────
+
+class _FakeResult:
+    """Fake execute() result that supports all call styles used by the service."""
+
+    def __init__(self, value=None, rows=None):
+        self._value = value
+        self._rows = rows if rows is not None else []
+
+    def one_or_none(self):
+        return self._value
+
+    def scalar_one_or_none(self):
+        return self._value
+
+    def scalars(self):
+        return self
+
+    def all(self):
+        return self._rows
+
+
+class _FakeSession:
+    def __init__(self, results):
+        self._results = list(results)
+
+    async def execute(self, *args, **kwargs):  # noqa: ANN002, ARG002
+        return self._results.pop(0)
+
+
+@pytest.mark.asyncio
+async def test_get_messages_for_lead_returns_messages():
+    """Happy path: lead with conversation returns messages in order."""
+    lead_row = SimpleNamespace(id="lead-1", conversation_id="conv-1")
+    msg1 = SimpleNamespace(
+        id="msg-1", direction="inbound", type="text", content="Hello",
+        media_url=None, created_at=None,
+    )
+    msg2 = SimpleNamespace(
+        id="msg-2", direction="outbound", type="text", content="Hi!",
+        media_url=None, created_at=None,
+    )
+    session = _FakeSession([
+        _FakeResult(value=lead_row),          # lead lookup
+        _FakeResult(value="conv-1"),          # conversation tenant check
+        _FakeResult(rows=[msg1, msg2]),       # messages query
+    ])
+    msgs = await service.get_messages_for_lead(
+        session, lead_id="lead-1", tenant_id="tenant-A"
+    )
+    assert [m.id for m in msgs] == ["msg-1", "msg-2"]
+
+
+@pytest.mark.asyncio
+async def test_get_messages_for_lead_tenant_isolation():
+    """Tenant isolation wall: conversation owned by a different tenant returns []."""
+    lead_row = SimpleNamespace(id="lead-1", conversation_id="conv-other-tenant")
+    session = _FakeSession([
+        _FakeResult(value=lead_row),   # lead lookup succeeds (lead row exists)
+        _FakeResult(value=None),       # conversation tenant check fails
+    ])
+    msgs = await service.get_messages_for_lead(
+        session, lead_id="lead-1", tenant_id="tenant-A"
+    )
+    assert msgs == []
+
+
+@pytest.mark.asyncio
+async def test_get_messages_for_lead_null_conversation_id():
+    """Lead with no WhatsApp conversation yet returns [] without further DB calls."""
+    lead_row = SimpleNamespace(id="lead-1", conversation_id=None)
+    session = _FakeSession([_FakeResult(value=lead_row)])
+    msgs = await service.get_messages_for_lead(
+        session, lead_id="lead-1", tenant_id="tenant-A"
+    )
+    assert msgs == []
+

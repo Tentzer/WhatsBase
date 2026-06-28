@@ -15,7 +15,7 @@ from sqlalchemy.orm import selectinload
 from app.api.schemas import LeadAutomationEventResponse, LeadResponse, LeadStatus
 from app.core.models import get_model
 from app.core.observability import get_langfuse, observe
-from app.core.schema import Lead, LeadAutomationEvent, LeadProduct, Message, Product
+from app.core.schema import Conversation, Lead, LeadAutomationEvent, LeadProduct, Message, Product
 
 logger = logging.getLogger(__name__)
 _SUMMARY_WINDOW = 20
@@ -393,4 +393,54 @@ async def replace_lead_products(
     await session.execute(delete(LeadProduct).where(LeadProduct.lead_id == lead_id))
     for product_id in product_ids:
         session.add(LeadProduct(lead_id=lead_id, product_id=product_id))
+
+async def get_messages_for_lead(
+    session: AsyncSession,
+    *,
+    lead_id: str,
+    tenant_id: str,
+) -> list[Message]:
+    """Return Message rows for a lead's conversation, scoped to tenant.
+
+    Returns [] if the lead has no WhatsApp conversation yet (conversation_id is None).
+    Raises ValueError("Lead not found") if the lead does not exist for this tenant.
+    The Conversation's tenant_id is verified explicitly — the FK chain alone is
+    insufficient as the tenant-isolation wall.
+    """
+    lead_row = (
+        await session.execute(
+            select(Lead.id, Lead.conversation_id).where(
+                Lead.id == lead_id,
+                Lead.tenant_id == tenant_id,
+            )
+        )
+    ).one_or_none()
+    if lead_row is None:
+        raise ValueError("Lead not found")
+
+    conversation_id = lead_row.conversation_id
+    if conversation_id is None:
+        return []
+
+    # Explicitly validate tenant_id on the Conversation.
+    # Do NOT rely on the FK chain alone — this is the tenant-isolation wall.
+    conv_row = (
+        await session.execute(
+            select(Conversation.id).where(
+                Conversation.id == conversation_id,
+                Conversation.tenant_id == tenant_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if conv_row is None:
+        return []
+
+    messages = (
+        await session.execute(
+            select(Message)
+            .where(Message.conversation_id == conversation_id)
+            .order_by(Message.created_at.asc())
+        )
+    ).scalars().all()
+    return list(messages)
 

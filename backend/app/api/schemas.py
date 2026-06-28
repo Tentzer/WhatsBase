@@ -160,6 +160,15 @@ class LeadAutomationSettingsUpdateRequest(BaseModel):
     reengagement_enabled: bool | None = None
 
 
+class LeadMessageResponse(BaseModel):
+    id: str
+    direction: str  # "inbound" | "outbound"
+    type: str       # "text" | "image"
+    content: str | None = None
+    media_url: str | None = None
+    created_at: datetime
+
+
 class WhatsAppConnectRequest(BaseModel):
     instance_id: str = Field(min_length=1, max_length=64)
     token: str = Field(min_length=1)

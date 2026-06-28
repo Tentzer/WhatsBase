@@ -197,3 +197,12 @@ export interface LangfuseAnalytics {
   dailyUsageLast7Days: LangfuseDailyUsage[];
   latencyByName: LangfuseLatency[];
 }
+
+export interface LeadMessage {
+  id: string;
+  direction: "inbound" | "outbound";
+  type: "text" | "image";
+  content: string | null;
+  mediaUrl: string | null;
+  createdAt: string;
+}

@@ -11,14 +11,16 @@ from app.api.schemas import (
     LeadAutomationEventResponse,
     LeadAutomationSettingsResponse,
     LeadAutomationSettingsUpdateRequest,
+    LeadMessageResponse,
     LeadPayload,
     LeadProductsPayload,
     LeadResponse,
     LeadUpdatePayload,
 )
 from app.core.db import get_session
-from app.core.schema import Agent, Lead, LeadAutomationEvent, LeadProduct, Tenant
+from app.core.schema import Agent, Conversation, Lead, LeadAutomationEvent, LeadProduct, Message, Tenant
 from app.leads.service import (
+    get_messages_for_lead,
     lead_automation_event_to_response,
     lead_query_for_tenant,
     lead_to_response,
@@ -261,4 +263,32 @@ async def update_lead_automation_settings(
         auto_reply_enabled=agent.auto_reply_enabled,
         reengagement_enabled=agent.reengagement_enabled,
     )
+
+@router.get("/leads/{lead_id}/messages", response_model=list[LeadMessageResponse])
+async def get_lead_messages(
+    lead_id: str,
+    ctx: AuthContext = Depends(get_auth_context),
+    session: AsyncSession = Depends(get_session),
+) -> list[LeadMessageResponse]:
+    """Return the WhatsApp conversation messages for a lead.
+
+    Returns [] when the lead has no linked conversation yet.
+    Tenant-isolated: a tenant can only read messages for their own leads.
+    """
+    tenant_id = require_tenant(ctx)
+    try:
+        messages = await get_messages_for_lead(session, lead_id=lead_id, tenant_id=tenant_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    return [
+        LeadMessageResponse(
+            id=msg.id,
+            direction=msg.direction,
+            type=msg.type,
+            content=msg.content,
+            media_url=msg.media_url,
+            created_at=msg.created_at,
+        )
+        for msg in messages
+    ]
 
